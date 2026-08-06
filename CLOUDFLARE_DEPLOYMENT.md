@@ -16,7 +16,7 @@ npx wrangler login
 npx wrangler d1 create wuco-production --binding WEA_DB --update-config
 ```
 
-The command replaces `REPLACE_WITH_D1_DATABASE_ID` in [cloudflare/wrangler.jsonc](cloudflare/wrangler.jsonc). Do not commit credentials.
+The command replaces the D1 UUID in [cloudflare/wrangler.jsonc](cloudflare/wrangler.jsonc). Do not commit credentials.
 
 ### 2. Create and connect the Pages project
 
@@ -38,7 +38,6 @@ If Cloudflare assigns a different Pages domain or a custom domain is used, chang
 
 In **GitHub → Settings → Secrets and variables → Actions**, add:
 
-- `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_API_TOKEN`
 
 Create a least-privilege Cloudflare API token scoped to this account with Worker deployment and D1 permissions. Never store it in the repository.
