@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wuco-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-06",
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "ALLOWED_ORIGIN": "https://wuco.pages.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "WEA_DB",
+      "database_name": "wuco-production",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

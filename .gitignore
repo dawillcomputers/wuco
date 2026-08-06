@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Cloudflare Workers local state and credentials
+cloudflare/.dev.vars
+cloudflare/.wrangler/
+cloudflare/node_modules/

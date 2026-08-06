@@ -1,0 +1,2 @@
+# Local-only values. Copy to .dev.vars; never commit .dev.vars.
+ALLOWED_ORIGIN=http://localhost:3000
