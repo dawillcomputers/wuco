@@ -20,7 +20,6 @@ jobs:
     name: Apply D1 migrations and deploy API
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: production
     defaults:
       run:
         working-directory: cloudflare
