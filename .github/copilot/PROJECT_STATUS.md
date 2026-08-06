@@ -1,7 +1,7 @@
 # WEA LMS Project Status
 
 - [x] Project Setup & Architecture (Module 01)
-- [ ] Design System (Module 02)
+- [x] Design System (Module 02)
 - [ ] Public Website (Module 03)
 - [ ] Authentication
 - [ ] Learner Dashboard

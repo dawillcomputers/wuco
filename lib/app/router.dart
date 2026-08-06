@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/foundation/presentation/foundation_screen.dart';
 import '../features/foundation/presentation/not_found_screen.dart';
+import '../features/design_system/presentation/design_system_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 
 GoRouter get appRouter => GoRouter(
@@ -10,6 +11,10 @@ GoRouter get appRouter => GoRouter(
   errorBuilder: (context, state) => const NotFoundScreen(),
   routes: [
     GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
+    GoRoute(
+      path: '/design-system',
+      builder: (context, state) => const DesignSystemScreen(),
+    ),
     _foundationRoute('/about', 'About WEA'),
     _foundationRoute('/programmes', 'Executive Programmes'),
     GoRoute(
@@ -24,6 +29,7 @@ GoRouter get appRouter => GoRouter(
     _foundationRoute('/faculty', 'Faculty'),
     _foundationRoute('/events', 'Events'),
     _foundationRoute('/research', 'Research'),
+    _foundationRoute('/professional-network', 'Professional Network'),
     _foundationRoute('/contact', 'Contact'),
     _foundationRoute('/login', 'Sign in'),
     _foundationRoute('/register', 'Create an account'),

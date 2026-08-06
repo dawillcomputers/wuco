@@ -10,8 +10,8 @@ void main() {
   testWidgets('app starts with WEA branding', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: WEAApp()));
     await tester.pumpAndSettle();
-    expect(find.text('WUCO\nEXECUTIVE ACADEMY'), findsOneWidget);
-    expect(find.text('Explore Programmes'), findsOneWidget);
+    expect(find.text("Where Africa's\nLeaders Are Formed"), findsOneWidget);
+    expect(find.text('EXPLORE PROGRAMMES'), findsOneWidget);
   });
 
   test('theme tokens use the WEA black and gold palette', () {
@@ -46,7 +46,7 @@ void main() {
       tester.view.devicePixelRatio = 1;
       await tester.pumpWidget(const ProviderScope(child: WEAApp()));
       await tester.pumpAndSettle();
-      expect(find.text('Explore Programmes'), findsOneWidget);
+      expect(find.text('EXPLORE PROGRAMMES'), findsOneWidget);
     }
   });
 }

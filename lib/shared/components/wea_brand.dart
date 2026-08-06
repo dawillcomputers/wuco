@@ -10,21 +10,10 @@ class WEABrand extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Container(
-        width: 34,
-        height: 34,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          border: Border.all(color: WEAColors.gold),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Text(
-          'W',
-          style: TextStyle(
-            color: WEAColors.brightGold,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
+      SizedBox(
+        width: 30,
+        height: 30,
+        child: CustomPaint(painter: _BrandMarkPainter()),
       ),
       const SizedBox(width: 10),
       if (!compact)
@@ -36,7 +25,7 @@ class WEABrand extends StatelessWidget {
               'WUCO EXECUTIVE',
               style: Theme.of(
                 context,
-              ).textTheme.labelMedium?.copyWith(letterSpacing: 1.1),
+              ).textTheme.labelMedium?.copyWith(letterSpacing: 1.35),
             ),
             Text(
               'ACADEMY',
@@ -49,4 +38,34 @@ class WEABrand extends StatelessWidget {
         ),
     ],
   );
+}
+
+class _BrandMarkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = WEAColors.gold
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.25;
+    final inset = size.width * .08;
+    canvas.drawRect(
+      Rect.fromLTWH(
+        inset,
+        inset,
+        size.width - inset * 2,
+        size.height - inset * 2,
+      ),
+      paint,
+    );
+    final path = Path()
+      ..moveTo(size.width * .24, size.height * .25)
+      ..lineTo(size.width * .39, size.height * .75)
+      ..lineTo(size.width * .50, size.height * .42)
+      ..lineTo(size.width * .61, size.height * .75)
+      ..lineTo(size.width * .76, size.height * .25);
+    canvas.drawPath(path, paint..strokeWidth = 1.6);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

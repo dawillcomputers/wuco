@@ -23,17 +23,57 @@ class WEAButton extends StatelessWidget {
   );
 }
 
-class WEAOutlinedButton extends StatelessWidget {
+class WEAOutlinedButton extends StatefulWidget {
   const WEAOutlinedButton({
     super.key,
     required this.label,
     required this.onPressed,
+    this.compact = false,
   });
   final String label;
   final VoidCallback? onPressed;
+  final bool compact;
+
   @override
-  Widget build(BuildContext context) =>
-      OutlinedButton(onPressed: onPressed, child: Text(label));
+  State<WEAOutlinedButton> createState() => _WEAOutlinedButtonState();
+}
+
+class _WEAOutlinedButtonState extends State<WEAOutlinedButton> {
+  var _hovering = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    onEnter: (_) => setState(() => _hovering = true),
+    onExit: (_) => setState(() => _hovering = false),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      decoration: BoxDecoration(
+        color: _hovering ? WEAColors.gold : Colors.transparent,
+        border: Border.all(color: WEAColors.gold),
+      ),
+      child: TextButton(
+        onPressed: widget.onPressed,
+        style: TextButton.styleFrom(
+          foregroundColor: _hovering ? WEAColors.background : WEAColors.gold,
+          minimumSize: Size(0, widget.compact ? 34 : 46),
+          padding: EdgeInsets.symmetric(
+            horizontal: widget.compact ? 12 : 18,
+            vertical: widget.compact ? 7 : 12,
+          ),
+          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(
+          widget.label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: _hovering ? WEAColors.background : WEAColors.gold,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.2,
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class WEATextButton extends StatelessWidget {
