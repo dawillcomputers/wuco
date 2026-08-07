@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/components/wea_components.dart';
 import '../../../shared/layouts/app_shell.dart';
+import '../../../shared/widgets/wea_public_widgets.dart';
 import '../application/hero_slides_provider.dart';
 import 'widgets/wea_hero.dart';
+import 'widgets/home_sections.dart';
 import 'widgets/wea_stat_strip.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -22,6 +24,8 @@ class HomeScreen extends ConsumerWidget {
             children: [
               WEAHero(slides: slides),
               const WEAStatStrip(),
+              const HomePublicSections(),
+              const WEAFooter(),
             ],
           ),
         ),

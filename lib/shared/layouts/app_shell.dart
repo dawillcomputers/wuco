@@ -88,7 +88,7 @@ class _DesktopNavigation extends StatelessWidget {
         height: 36,
         child: WEAOutlinedButton(
           label: 'APPLY',
-          onPressed: () => context.go('/admissions'),
+          onPressed: () => context.go('/apply'),
           compact: true,
         ),
       ),
@@ -198,7 +198,7 @@ class _MobileNavigation extends StatelessWidget {
                 label: 'APPLY',
                 onPressed: () {
                   Navigator.of(context).pop();
-                  context.go('/admissions');
+                  context.go('/apply');
                 },
               ),
             ),
