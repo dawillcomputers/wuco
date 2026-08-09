@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme/app_colors.dart';
@@ -32,7 +32,7 @@ class EditorialPage extends StatelessWidget {
             Text(
               eyebrow,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: WEAColors.gold,
+                color: WEAColors.accent,
                 letterSpacing: 1.4,
               ),
             ),
@@ -186,7 +186,7 @@ class _FeaturedProgramme extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(WEAInsets.xl),
       decoration: BoxDecoration(
-        color: WEAColors.deepBlack,
+        color: WEAColors.surfaceMuted,
         border: Border.all(color: WEAColors.border),
       ),
       child: Column(
@@ -196,7 +196,7 @@ class _FeaturedProgramme extends StatelessWidget {
             'FEATURED PROGRAMME',
             style: Theme.of(
               context,
-            ).textTheme.labelMedium?.copyWith(color: WEAColors.gold),
+            ).textTheme.labelMedium?.copyWith(color: WEAColors.accent),
           ),
           const SizedBox(height: 12),
           Text(p.title, style: Theme.of(context).textTheme.headlineMedium),
@@ -237,7 +237,7 @@ class ProgrammeDetailScreen extends StatelessWidget {
                         programme.category,
                         style: Theme.of(context).textTheme.labelMedium
                             ?.copyWith(
-                              color: WEAColors.gold,
+                              color: WEAColors.accent,
                               letterSpacing: 1.3,
                             ),
                       ),

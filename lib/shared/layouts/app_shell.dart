@@ -130,7 +130,7 @@ class _NavigationLinkState extends State<_NavigationLink> {
         child: AnimatedDefaultTextStyle(
           duration: const Duration(milliseconds: 180),
           style: Theme.of(context).textTheme.labelSmall!.copyWith(
-            color: emphasized ? WEAColors.gold : WEAColors.secondaryText,
+            color: emphasized ? WEAColors.accent : WEAColors.secondaryText,
             letterSpacing: .65,
             fontWeight: FontWeight.w500,
           ),
@@ -149,8 +149,12 @@ class _MobileNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Drawer(
     width: 330,
-    backgroundColor: WEAColors.deepBlack,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+    backgroundColor: WEAColors.background,
+    surfaceTintColor: Colors.transparent,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.zero,
+      side: BorderSide(color: WEAColors.border),
+    ),
     child: SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
@@ -227,12 +231,12 @@ class _MobileNavigationLink extends StatelessWidget {
     title: Text(
       label.toUpperCase(),
       style: Theme.of(context).textTheme.labelMedium?.copyWith(
-        color: active ? WEAColors.gold : WEAColors.secondaryText,
+        color: active ? WEAColors.accent : WEAColors.secondaryText,
         letterSpacing: 1,
       ),
     ),
     trailing: active
-        ? const Icon(Icons.arrow_outward, color: WEAColors.gold, size: 17)
+        ? const Icon(Icons.arrow_outward, color: WEAColors.accent, size: 17)
         : null,
     onTap: () {
       Navigator.of(context).pop();

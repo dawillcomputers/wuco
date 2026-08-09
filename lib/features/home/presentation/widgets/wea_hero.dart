@@ -186,9 +186,9 @@ class _HeroSlotPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final colours = [
-      const Color(0xFF19201D),
-      const Color(0xFF1A1A19),
-      const Color(0xFF141B1C),
+      const Color(0xFF16386B),
+      const Color(0xFF102B57),
+      const Color(0xFF1B4A80),
     ];
     final base = colours[variant % colours.length];
     canvas.drawRect(
@@ -197,10 +197,11 @@ class _HeroSlotPainter extends CustomPainter {
         ..shader = LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [base, WEAColors.background],
+          colors: [base, WEAColors.navyDeep],
         ).createShader(Offset.zero & size),
     );
-    final silhouette = Paint()..color = Colors.black.withValues(alpha: .36);
+    final silhouette = Paint()
+      ..color = WEAColors.navyDeep.withValues(alpha: .45);
     final circleCenter = Offset(
       size.width * (.76 - variant * .08),
       size.height * .45,
@@ -231,25 +232,25 @@ class WEAHeroOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final blackOpacity = switch (strength) {
-      HeroOverlayStrength.light => .48,
-      HeroOverlayStrength.medium => .58,
-      HeroOverlayStrength.strong => .68,
+    final navyOpacity = switch (strength) {
+      HeroOverlayStrength.light => .52,
+      HeroOverlayStrength.medium => .62,
+      HeroOverlayStrength.strong => .72,
     };
     return IgnorePointer(
       child: Stack(
         fit: StackFit.expand,
         children: [
-          ColoredBox(color: Colors.black.withValues(alpha: blackOpacity)),
+          ColoredBox(color: WEAColors.navy.withValues(alpha: navyOpacity)),
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
                 colors: [
-                  Colors.black.withValues(alpha: .88),
-                  Colors.black.withValues(alpha: .54),
-                  Colors.black.withValues(alpha: .18),
+                  WEAColors.navyDeep.withValues(alpha: .90),
+                  WEAColors.navyDeep.withValues(alpha: .56),
+                  WEAColors.navyDeep.withValues(alpha: .18),
                 ],
                 stops: const [0, .52, 1],
               ),
@@ -261,9 +262,9 @@ class WEAHeroOverlay extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  WEAColors.gold.withValues(alpha: .07),
+                  WEAColors.accent.withValues(alpha: .10),
                   Colors.transparent,
-                  Colors.black.withValues(alpha: .7),
+                  WEAColors.navyDeep.withValues(alpha: .72),
                 ],
               ),
             ),
@@ -296,11 +297,14 @@ class _HeroContent extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(height: 1, width: 46, color: WEAColors.gold),
+                  Container(height: 1, width: 46, color: WEAColors.accentSoft),
                   SizedBox(height: isMobile ? 22 : 28),
                   Text(
                     "Where Africa's\nLeaders Are Formed",
                     style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                      // The hero sits on a navy overlay, so it opts out of the
+                      // light theme's navy type colour.
+                      color: WEAColors.offWhite,
                       fontSize: isMobile ? 46 : 72,
                       height: .99,
                       fontWeight: FontWeight.w600,
@@ -323,6 +327,7 @@ class _HeroContent extends StatelessWidget {
                   WEAOutlinedButton(
                     label: 'EXPLORE PROGRAMMES',
                     onPressed: () => context.go('/programmes'),
+                    onDark: true,
                   ),
                 ],
               ),
@@ -360,7 +365,7 @@ class _HeroFooter extends StatelessWidget {
             width: index == activeIndex ? 34 : 16,
             margin: const EdgeInsets.only(right: 7),
             color: index == activeIndex
-                ? WEAColors.gold
+                ? WEAColors.accentSoft
                 : WEAColors.offWhite.withValues(alpha: .35),
           ),
         ),

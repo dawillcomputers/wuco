@@ -39,7 +39,7 @@ class _GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = WEAColors.border.withValues(alpha: .32 * opacity)
+      ..color = WEAColors.gridLine.withValues(alpha: .55 * opacity)
       ..strokeWidth = 1;
     for (var x = 0.0; x <= size.width; x += cellSize) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);

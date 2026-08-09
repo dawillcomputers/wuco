@@ -5,7 +5,7 @@ import 'app_colors.dart';
 
 abstract final class WEATypography {
   static TextTheme textTheme() {
-    final body = GoogleFonts.interTextTheme(ThemeData.dark().textTheme);
+    final body = GoogleFonts.interTextTheme(ThemeData.light().textTheme);
     final heading = GoogleFonts.playfairDisplayTextTheme(body);
     return body.copyWith(
       displayLarge: heading.displayLarge?.copyWith(

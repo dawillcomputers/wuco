@@ -24,7 +24,7 @@ class DesignSystemScreen extends StatelessWidget {
                 Text(
                   'DESIGN SYSTEM',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: WEAColors.gold,
+                    color: WEAColors.accent,
                     letterSpacing: 1.6,
                   ),
                 ),
@@ -60,7 +60,7 @@ class DesignSystemScreen extends StatelessWidget {
                       Text(
                         'LABEL / METADATA / NAVIGATION',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: WEAColors.gold,
+                          color: WEAColors.accent,
                           letterSpacing: 1.2,
                         ),
                       ),
@@ -143,7 +143,7 @@ class _ShowcaseSection extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(height: 1, width: 36, color: WEAColors.gold),
+        Container(height: 1, width: 36, color: WEAColors.accent),
         const SizedBox(height: 14),
         Text(
           title.toUpperCase(),
@@ -162,11 +162,12 @@ class _ColourTokens extends StatelessWidget {
   const _ColourTokens();
 
   static const _tokens = [
-    ('Black', WEAColors.background),
-    ('Surface', WEAColors.surface),
-    ('Card', WEAColors.card),
-    ('Gold', WEAColors.gold),
-    ('Off white', WEAColors.offWhite),
+    ('Background', WEAColors.background),
+    ('Muted surface', WEAColors.surfaceMuted),
+    ('Elevated', WEAColors.elevated),
+    ('Accent', WEAColors.accent),
+    ('Accent bright', WEAColors.accentBright),
+    ('Navy', WEAColors.navy),
   ];
 
   @override

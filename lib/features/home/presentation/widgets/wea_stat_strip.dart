@@ -17,10 +17,7 @@ class WEAStatStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DecoratedBox(
-    decoration: const BoxDecoration(
-      color: WEAColors.deepBlack,
-      border: Border(top: BorderSide(color: WEAColors.border)),
-    ),
+    decoration: const BoxDecoration(color: WEAColors.navy),
     child: WEAContainer(
       maxWidth: WEAMaxWidths.content,
       child: ResponsiveBuilder(
@@ -70,7 +67,7 @@ class _StripItem extends StatelessWidget {
     decoration: BoxDecoration(
       border: Border(
         left: showLeadingBorder
-            ? const BorderSide(color: WEAColors.border)
+            ? BorderSide(color: WEAColors.offWhite.withValues(alpha: .16))
             : BorderSide.none,
       ),
     ),
@@ -80,7 +77,7 @@ class _StripItem extends StatelessWidget {
         Text(
           number,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: WEAColors.gold,
+            color: WEAColors.accentSoft,
             letterSpacing: 1.2,
           ),
         ),

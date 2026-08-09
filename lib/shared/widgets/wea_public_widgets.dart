@@ -52,7 +52,7 @@ class WEASectionHeading extends StatelessWidget {
             Text(
               eyebrow,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: WEAColors.gold,
+                color: WEAColors.accent,
                 letterSpacing: 1.45,
               ),
             ),
@@ -115,7 +115,9 @@ class WEAVisualImage extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Color(0x22050505), Color(0xAA050505)],
+                  // A light navy scrim for depth; the type sits below the
+                  // image rather than on it, so it stays deliberately gentle.
+                  colors: [Color(0x000A1E3D), Color(0x2E0A1E3D)],
                 ),
               ),
             ),
@@ -164,7 +166,7 @@ class WEAProgrammeCard extends StatelessWidget {
                 Text(
                   programme.category,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: WEAColors.gold,
+                    color: WEAColors.accent,
                     letterSpacing: 1.1,
                   ),
                 ),
@@ -222,7 +224,7 @@ class WEAFacultyCard extends StatelessWidget {
           aspectRatio: .94,
         ),
         const SizedBox(height: 16),
-        Container(height: 1, width: 34, color: WEAColors.gold),
+        Container(height: 1, width: 34, color: WEAColors.accent),
         const SizedBox(height: 12),
         Text(member.name, style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 4),
@@ -230,7 +232,7 @@ class WEAFacultyCard extends StatelessWidget {
           member.role,
           style: Theme.of(
             context,
-          ).textTheme.labelMedium?.copyWith(color: WEAColors.gold),
+          ).textTheme.labelMedium?.copyWith(color: WEAColors.accent),
         ),
         const SizedBox(height: 8),
         Text(member.expertise, style: Theme.of(context).textTheme.bodyMedium),
@@ -267,7 +269,7 @@ class WEAEventPreview extends StatelessWidget {
                 Text(
                   event.date,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: WEAColors.gold,
+                    color: WEAColors.accent,
                     letterSpacing: 1.2,
                   ),
                 ),
@@ -299,10 +301,7 @@ class WEAFooter extends StatelessWidget {
   const WEAFooter({super.key});
   @override
   Widget build(BuildContext context) => DecoratedBox(
-    decoration: const BoxDecoration(
-      color: WEAColors.deepBlack,
-      border: Border(top: BorderSide(color: WEAColors.border)),
-    ),
+    decoration: const BoxDecoration(color: WEAColors.navy),
     child: WEAContainer(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 56),
@@ -312,13 +311,15 @@ class WEAFooter extends StatelessWidget {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const WEABrand(),
-                const SizedBox(height: 20),
+                WEABrandLockup(height: isMobile ? 88 : 108, onDark: true),
+                const SizedBox(height: 24),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
                   child: Text(
                     "Africa's Executive Academy for Leadership, Trade, Investment and Professional Development",
-                    style: Theme.of(context).textTheme.bodyLarge,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: WEAColors.offWhite.withValues(alpha: .78),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 36),
@@ -340,18 +341,23 @@ class WEAFooter extends StatelessWidget {
                     ])
                       TextButton(
                         onPressed: () => context.go(link.$2),
+                        style: TextButton.styleFrom(
+                          foregroundColor: WEAColors.offWhite,
+                        ),
                         child: Text(link.$1.toUpperCase()),
                       ),
                   ],
                 ),
                 const SizedBox(height: 36),
-                const Divider(),
+                Divider(color: WEAColors.offWhite.withValues(alpha: .18)),
                 const SizedBox(height: 18),
                 Text(
                   isMobile
                       ? '© 2026 WUCO Executive Academy.\nA division of the World United Consumer Organisation.'
                       : '© 2026 WUCO Executive Academy. A division of the World United Consumer Organisation.',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: WEAColors.offWhite.withValues(alpha: .62),
+                  ),
                 ),
               ],
             );

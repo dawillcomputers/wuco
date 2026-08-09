@@ -30,14 +30,14 @@ class HomePublicSections extends StatelessWidget {
 }
 
 class _Section extends StatelessWidget {
-  const _Section({required this.child, this.dark = false});
+  const _Section({required this.child, this.tinted = false});
   final Widget child;
-  final bool dark;
+  final bool tinted;
   @override
   Widget build(BuildContext context) => DecoratedBox(
-    decoration: dark
+    decoration: tinted
         ? const BoxDecoration(
-            color: WEAColors.deepBlack,
+            color: WEAColors.surfaceMuted,
             border: Border(
               top: BorderSide(color: WEAColors.border),
               bottom: BorderSide(color: WEAColors.border),
@@ -133,7 +133,7 @@ class _ProgrammeShowcase extends StatelessWidget {
   const _ProgrammeShowcase();
   @override
   Widget build(BuildContext context) => _Section(
-    dark: true,
+    tinted: true,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -263,7 +263,7 @@ class _WhyItem extends StatelessWidget {
           number,
           style: Theme.of(
             context,
-          ).textTheme.labelMedium?.copyWith(color: WEAColors.gold),
+          ).textTheme.labelMedium?.copyWith(color: WEAColors.accent),
         ),
         const SizedBox(width: 16),
         Expanded(
@@ -285,7 +285,7 @@ class _TradeFeature extends StatelessWidget {
   const _TradeFeature();
   @override
   Widget build(BuildContext context) => _Section(
-    dark: true,
+    tinted: true,
     child: ResponsiveBuilder(
       builder: (context, breakpoint) {
         final isMobile = breakpoint == WEABreakpoint.mobile;
@@ -295,7 +295,7 @@ class _TradeFeature extends StatelessWidget {
             Text(
               'SIGNATURE PROGRAMME',
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: WEAColors.gold,
+                color: WEAColors.accent,
                 letterSpacing: 1.4,
               ),
             ),
@@ -406,7 +406,7 @@ class _NetworkFeature extends StatelessWidget {
   const _NetworkFeature();
   @override
   Widget build(BuildContext context) => _Section(
-    dark: true,
+    tinted: true,
     child: _SplitFeature(
       eyebrow: 'WUCO PROFESSIONAL NETWORK',
       title: 'Your learning does not end with your certificate.',
@@ -463,7 +463,7 @@ class _SplitFeature extends StatelessWidget {
           Text(
             eyebrow,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: WEAColors.gold,
+              color: WEAColors.accent,
               letterSpacing: 1.4,
             ),
           ),
@@ -515,7 +515,7 @@ class _Credibility extends StatelessWidget {
             Text(
               'INSTITUTIONAL CREDIBILITY',
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: WEAColors.gold,
+                color: WEAColors.accent,
                 letterSpacing: 1.4,
               ),
             ),
@@ -542,7 +542,7 @@ class _EventsShowcase extends StatelessWidget {
   const _EventsShowcase();
   @override
   Widget build(BuildContext context) => _Section(
-    dark: true,
+    tinted: true,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -606,7 +606,7 @@ class _ResearchShowcase extends StatelessWidget {
                     r.category,
                     style: Theme.of(
                       context,
-                    ).textTheme.labelSmall?.copyWith(color: WEAColors.gold),
+                    ).textTheme.labelSmall?.copyWith(color: WEAColors.accent),
                   ),
                 ),
                 Expanded(
@@ -640,17 +640,17 @@ class _ApplyFeature extends StatelessWidget {
   const _ApplyFeature();
   @override
   Widget build(BuildContext context) => _Section(
-    dark: true,
+    tinted: true,
     child: Container(
       padding: const EdgeInsets.all(WEAInsets.xxl),
-      decoration: BoxDecoration(
-        border: Border.all(color: WEAColors.border),
-        image: const DecorationImage(
+      decoration: const BoxDecoration(
+        color: WEAColors.navy,
+        image: DecorationImage(
           image: NetworkImage(
             'https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=1400&q=82',
           ),
           fit: BoxFit.cover,
-          opacity: .18,
+          opacity: .22,
         ),
       ),
       child: Column(
@@ -659,21 +659,25 @@ class _ApplyFeature extends StatelessWidget {
           Text(
             'ADMISSIONS',
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: WEAColors.gold,
+              color: WEAColors.accentSoft,
               letterSpacing: 1.4,
             ),
           ),
           const SizedBox(height: 16),
           Text(
             'Ready to lead with greater authority?',
-            style: Theme.of(context).textTheme.headlineLarge,
+            style: Theme.of(
+              context,
+            ).textTheme.headlineLarge?.copyWith(color: WEAColors.offWhite),
           ),
           const SizedBox(height: 14),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 620),
             child: Text(
               "Apply to WUCO Executive Academy and join a community of professionals committed to excellence, leadership and Africa's future.",
-              style: Theme.of(context).textTheme.bodyLarge,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: WEAColors.offWhite.withValues(alpha: .82),
+              ),
             ),
           ),
           const SizedBox(height: 28),
@@ -684,10 +688,12 @@ class _ApplyFeature extends StatelessWidget {
               WEAOutlinedButton(
                 label: 'APPLY NOW',
                 onPressed: () => context.go('/apply'),
+                onDark: true,
               ),
               WEATextButton(
                 label: 'EXPLORE PROGRAMMES',
                 onPressed: () => context.go('/programmes'),
+                onDark: true,
               ),
             ],
           ),

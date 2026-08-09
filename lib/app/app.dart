@@ -10,7 +10,7 @@ class WEAApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp.router(
     title: 'WUCO Executive Academy',
     debugShowCheckedModeBanner: false,
-    theme: WEAAppTheme.dark(),
+    theme: WEAAppTheme.light(),
     routerConfig: appRouter,
   );
 }

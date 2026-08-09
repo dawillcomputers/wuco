@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 import 'package:wea_lms/app/app.dart';
 import 'package:wea_lms/app/theme/app_colors.dart';
+import 'package:wea_lms/app/theme/app_theme.dart';
 import 'package:wea_lms/core/responsive/responsive.dart';
 
 void main() {
@@ -17,9 +18,18 @@ void main() {
     });
   });
 
-  test('theme tokens use the WEA black and gold palette', () {
-    expect(WEAColors.background.toARGB32(), 0xFF050505);
-    expect(WEAColors.gold.toARGB32(), 0xFFC8A84D);
+  test('theme tokens use the bright WUCO logo palette', () {
+    expect(WEAColors.background.toARGB32(), 0xFFFFFFFF);
+    expect(WEAColors.accent.toARGB32(), 0xFF1B6FC4);
+    expect(WEAColors.navy.toARGB32(), 0xFF0A1E3D);
+    expect(WEAColors.primaryText, WEAColors.navy);
+  });
+
+  test('theme is light and carries the logo accent', () {
+    final theme = WEAAppTheme.light();
+    expect(theme.brightness, Brightness.light);
+    expect(theme.colorScheme.primary, WEAColors.accent);
+    expect(theme.scaffoldBackgroundColor, WEAColors.background);
   });
 
   test('responsive breakpoints select expected layouts', () {

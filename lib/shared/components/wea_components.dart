@@ -29,10 +29,15 @@ class WEAOutlinedButton extends StatefulWidget {
     required this.label,
     required this.onPressed,
     this.compact = false,
+    this.onDark = false,
   });
   final String label;
   final VoidCallback? onPressed;
   final bool compact;
+
+  /// Reverses the treatment for navy grounds, where [WEAColors.accent] does
+  /// not carry enough contrast.
+  final bool onDark;
 
   @override
   State<WEAOutlinedButton> createState() => _WEAOutlinedButtonState();
@@ -42,38 +47,45 @@ class _WEAOutlinedButtonState extends State<WEAOutlinedButton> {
   var _hovering = false;
 
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    onEnter: (_) => setState(() => _hovering = true),
-    onExit: (_) => setState(() => _hovering = false),
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      decoration: BoxDecoration(
-        color: _hovering ? WEAColors.gold : Colors.transparent,
-        border: Border.all(color: WEAColors.gold),
-      ),
-      child: TextButton(
-        onPressed: widget.onPressed,
-        style: TextButton.styleFrom(
-          foregroundColor: _hovering ? WEAColors.background : WEAColors.gold,
-          minimumSize: Size(0, widget.compact ? 34 : 46),
-          padding: EdgeInsets.symmetric(
-            horizontal: widget.compact ? 12 : 18,
-            vertical: widget.compact ? 7 : 12,
-          ),
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  Widget build(BuildContext context) {
+    final line = widget.onDark ? WEAColors.offWhite : WEAColors.accent;
+    final onFill = widget.onDark ? WEAColors.navy : Colors.white;
+    final foreground = _hovering ? onFill : line;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        decoration: BoxDecoration(
+          color: _hovering ? line : Colors.transparent,
+          border: Border.all(color: line),
         ),
-        child: Text(
-          widget.label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: _hovering ? WEAColors.background : WEAColors.gold,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.2,
+        child: TextButton(
+          onPressed: widget.onPressed,
+          style: TextButton.styleFrom(
+            foregroundColor: foreground,
+            minimumSize: Size(0, widget.compact ? 34 : 46),
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.compact ? 12 : 18,
+              vertical: widget.compact ? 7 : 12,
+            ),
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.zero,
+            ),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: Text(
+            widget.label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: foreground,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.2,
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class WEATextButton extends StatelessWidget {
@@ -81,12 +93,19 @@ class WEATextButton extends StatelessWidget {
     super.key,
     required this.label,
     required this.onPressed,
+    this.onDark = false,
   });
   final String label;
   final VoidCallback? onPressed;
+  final bool onDark;
   @override
-  Widget build(BuildContext context) =>
-      TextButton(onPressed: onPressed, child: Text(label));
+  Widget build(BuildContext context) => TextButton(
+    onPressed: onPressed,
+    style: onDark
+        ? TextButton.styleFrom(foregroundColor: WEAColors.accentSoft)
+        : null,
+    child: Text(label),
+  );
 }
 
 class WEACard extends StatelessWidget {
@@ -135,15 +154,15 @@ class WEABadge extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
     decoration: BoxDecoration(
-      color: WEAColors.gold.withValues(alpha: .14),
-      border: Border.all(color: WEAColors.gold.withValues(alpha: .45)),
+      color: WEAColors.accent.withValues(alpha: .14),
+      border: Border.all(color: WEAColors.accent.withValues(alpha: .45)),
       borderRadius: BorderRadius.circular(99),
     ),
     child: Text(
       label,
       style: Theme.of(
         context,
-      ).textTheme.labelSmall?.copyWith(color: WEAColors.brightGold),
+      ).textTheme.labelSmall?.copyWith(color: WEAColors.accentDeep),
     ),
   );
 }
@@ -168,7 +187,7 @@ class WEAStatCard extends StatelessWidget {
           value,
           style: Theme.of(
             context,
-          ).textTheme.headlineMedium?.copyWith(color: WEAColors.brightGold),
+          ).textTheme.headlineMedium?.copyWith(color: WEAColors.accent),
         ),
         const SizedBox(height: 6),
         Text(label),
@@ -182,8 +201,8 @@ class WEAAvatar extends StatelessWidget {
   final String initials;
   @override
   Widget build(BuildContext context) => CircleAvatar(
-    backgroundColor: WEAColors.deepGold,
-    foregroundColor: WEAColors.primaryText,
+    backgroundColor: WEAColors.accent,
+    foregroundColor: Colors.white,
     child: Text(initials),
   );
 }
@@ -213,7 +232,7 @@ class WEAEmptyState extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.inbox_outlined, color: WEAColors.gold, size: 42),
+        Icon(Icons.inbox_outlined, color: WEAColors.accent, size: 42),
         const SizedBox(height: 12),
         Text(title, style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 6),

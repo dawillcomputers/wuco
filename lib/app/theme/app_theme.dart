@@ -5,16 +5,16 @@ import 'app_dimensions.dart';
 import 'app_typography.dart';
 
 abstract final class WEAAppTheme {
-  static ThemeData dark() {
-    final scheme = const ColorScheme.dark(
-      primary: WEAColors.gold,
-      onPrimary: WEAColors.background,
-      secondary: WEAColors.brightGold,
-      onSecondary: WEAColors.background,
-      surface: WEAColors.surface,
+  static ThemeData light() {
+    final scheme = const ColorScheme.light(
+      primary: WEAColors.accent,
+      onPrimary: Colors.white,
+      secondary: WEAColors.navy,
+      onSecondary: Colors.white,
+      surface: WEAColors.background,
       onSurface: WEAColors.primaryText,
       error: WEAColors.error,
-      onError: WEAColors.primaryText,
+      onError: Colors.white,
     );
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(WEAInsets.smallRadius),
@@ -22,11 +22,16 @@ abstract final class WEAAppTheme {
     );
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: Brightness.light,
       colorScheme: scheme,
       scaffoldBackgroundColor: WEAColors.background,
       textTheme: WEATypography.textTheme(),
       dividerColor: WEAColors.border,
+      dividerTheme: const DividerThemeData(
+        color: WEAColors.border,
+        space: 1,
+        thickness: 1,
+      ),
       cardTheme: CardThemeData(
         color: WEAColors.card,
         elevation: 0,
@@ -37,8 +42,9 @@ abstract final class WEAAppTheme {
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: WEAColors.gold,
-          foregroundColor: WEAColors.background,
+          backgroundColor: WEAColors.accent,
+          foregroundColor: Colors.white,
+          elevation: 0,
           minimumSize: const Size(0, 48),
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
           shape: RoundedRectangleBorder(
@@ -49,13 +55,16 @@ abstract final class WEAAppTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: WEAColors.brightGold,
+          foregroundColor: WEAColors.accent,
           minimumSize: const Size(0, 48),
-          side: const BorderSide(color: WEAColors.gold),
+          side: const BorderSide(color: WEAColors.accent),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(WEAInsets.smallRadius),
           ),
         ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: WEAColors.accent),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -64,7 +73,7 @@ abstract final class WEAAppTheme {
         hintStyle: const TextStyle(color: WEAColors.mutedText),
         enabledBorder: border,
         focusedBorder: border.copyWith(
-          borderSide: const BorderSide(color: WEAColors.gold, width: 1.5),
+          borderSide: const BorderSide(color: WEAColors.accent, width: 1.5),
         ),
         errorBorder: border.copyWith(
           borderSide: const BorderSide(color: WEAColors.error),
@@ -77,15 +86,15 @@ abstract final class WEAAppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(99)),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(
-        color: WEAColors.gold,
+        color: WEAColors.accent,
         linearTrackColor: WEAColors.elevated,
       ),
       tooltipTheme: const TooltipThemeData(
         decoration: BoxDecoration(
-          color: WEAColors.elevated,
+          color: WEAColors.navy,
           borderRadius: BorderRadius.all(Radius.circular(8)),
         ),
-        textStyle: TextStyle(color: WEAColors.primaryText),
+        textStyle: TextStyle(color: WEAColors.offWhite),
       ),
     );
   }

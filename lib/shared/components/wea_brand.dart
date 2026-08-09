@@ -2,18 +2,45 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme/app_colors.dart';
 
+/// WUCO Executive Academy brand artwork.
+///
+/// The full lockup carries the wordmark inside the image, so it only stays
+/// legible at generous heights (footers, splash surfaces). The emblem is the
+/// globe alone and reads cleanly at navigation sizes, where the wordmark is set
+/// in type beside it instead.
+abstract final class WEABrandAssets {
+  static const lockup = 'assets/brand/wuco_academy_logo.png';
+  static const lockupReversed = 'assets/brand/wuco_academy_logo_reversed.png';
+  static const emblem = 'assets/brand/wuco_academy_emblem.png';
+  static const emblemReversed = 'assets/brand/wuco_academy_emblem_reversed.png';
+
+  static const name = 'WUCO Executive Academy';
+}
+
+/// Compact brand signature: globe emblem plus typeset wordmark.
 class WEABrand extends StatelessWidget {
-  const WEABrand({super.key, this.compact = false});
+  const WEABrand({super.key, this.compact = false, this.onDark = false});
+
   final bool compact;
+
+  /// Switches to the reversed artwork and light type for navy grounds.
+  final bool onDark;
 
   @override
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
+      // Boxed rather than sized by height: the desktop header is tight at the
+      // 1440px breakpoint, so the mark keeps a fixed horizontal footprint.
       SizedBox(
-        width: 30,
-        height: 30,
-        child: CustomPaint(painter: _BrandMarkPainter()),
+        width: 32,
+        height: 32,
+        child: Image.asset(
+          onDark ? WEABrandAssets.emblemReversed : WEABrandAssets.emblem,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.medium,
+          semanticLabel: WEABrandAssets.name,
+        ),
       ),
       const SizedBox(width: 10),
       if (!compact)
@@ -23,14 +50,15 @@ class WEABrand extends StatelessWidget {
           children: [
             Text(
               'WUCO EXECUTIVE',
-              style: Theme.of(
-                context,
-              ).textTheme.labelMedium?.copyWith(letterSpacing: 1.35),
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: onDark ? WEAColors.offWhite : WEAColors.navy,
+                letterSpacing: 1.35,
+              ),
             ),
             Text(
               'ACADEMY',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: WEAColors.gold,
+                color: onDark ? WEAColors.accentSoft : WEAColors.accent,
                 letterSpacing: 2.4,
               ),
             ),
@@ -40,32 +68,18 @@ class WEABrand extends StatelessWidget {
   );
 }
 
-class _BrandMarkPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = WEAColors.gold
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.25;
-    final inset = size.width * .08;
-    canvas.drawRect(
-      Rect.fromLTWH(
-        inset,
-        inset,
-        size.width - inset * 2,
-        size.height - inset * 2,
-      ),
-      paint,
-    );
-    final path = Path()
-      ..moveTo(size.width * .24, size.height * .25)
-      ..lineTo(size.width * .39, size.height * .75)
-      ..lineTo(size.width * .50, size.height * .42)
-      ..lineTo(size.width * .61, size.height * .75)
-      ..lineTo(size.width * .76, size.height * .25);
-    canvas.drawPath(path, paint..strokeWidth = 1.6);
-  }
+/// The complete logo lockup, for surfaces with room to show it properly.
+class WEABrandLockup extends StatelessWidget {
+  const WEABrandLockup({super.key, this.height = 120, this.onDark = false});
+
+  final double height;
+  final bool onDark;
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  Widget build(BuildContext context) => Image.asset(
+    onDark ? WEABrandAssets.lockupReversed : WEABrandAssets.lockup,
+    height: height,
+    filterQuality: FilterQuality.medium,
+    semanticLabel: WEABrandAssets.name,
+  );
 }

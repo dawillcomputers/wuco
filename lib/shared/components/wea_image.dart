@@ -32,7 +32,7 @@ class WEAImage extends StatelessWidget {
               ),
             ),
           ),
-          if (overlay) const ColoredBox(color: Color(0x88050505)),
+          if (overlay) const ColoredBox(color: Color(0x730A1E3D)),
         ],
       ),
     ),
