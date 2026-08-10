@@ -1,0 +1,715 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../../app/theme/app_colors.dart';
+import '../../../app/theme/app_dimensions.dart';
+import '../../../data/services/public_content_service.dart';
+import '../../../shared/components/wea_brand.dart';
+import '../../../shared/components/wea_components.dart';
+import '../../authentication/application/auth_controller.dart';
+import '../../authentication/domain/auth_failure.dart';
+import '../../authentication/domain/user_profile.dart';
+import '../../authentication/domain/user_role.dart';
+
+/// Minimal Super Admin console: account administration and programme places.
+///
+/// The full Super Admin dashboard belongs to a later module. This covers only
+/// the operations needed to run the platform today — creating and removing
+/// accounts, granting roles, and placing learners on programmes.
+class SuperAdminConsole extends ConsumerStatefulWidget {
+  const SuperAdminConsole({super.key});
+
+  @override
+  ConsumerState<SuperAdminConsole> createState() => _SuperAdminConsoleState();
+}
+
+class _SuperAdminConsoleState extends ConsumerState<SuperAdminConsole> {
+  late Future<List<UserProfile>> _users;
+
+  @override
+  void initState() {
+    super.initState();
+    _users = ref.read(authControllerProvider.notifier).listUsers();
+  }
+
+  void _reload() {
+    setState(() {
+      _users = ref.read(authControllerProvider.notifier).listUsers();
+    });
+  }
+
+  void _report(String message, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: error ? WEAColors.error : null,
+      ),
+    );
+  }
+
+  Future<void> _addUser() async {
+    final result = await showDialog<({String email, UserRole role, String first, String last})>(
+      context: context,
+      builder: (context) => const _AddUserDialog(),
+    );
+    if (result == null) return;
+    try {
+      final created = await ref
+          .read(authControllerProvider.notifier)
+          .createUser(
+            email: result.email,
+            role: result.role,
+            firstName: result.first,
+            lastName: result.last,
+          );
+      _reload();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => _TemporaryPasswordDialog(
+          email: created.profile.email,
+          password: created.temporaryPassword,
+        ),
+      );
+    } on AuthFailure catch (failure) {
+      _report(failure.message, error: true);
+    }
+  }
+
+  Future<void> _deleteUser(UserProfile user) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete account?'),
+        content: Text(
+          '${user.email} will be removed permanently, along with their '
+          'programme places. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: WEAColors.error),
+            child: const Text('DELETE'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await ref.read(authControllerProvider.notifier).deleteUser(user.id);
+      _reload();
+      _report('${user.email} was deleted.');
+    } on AuthFailure catch (failure) {
+      _report(failure.message, error: true);
+    }
+  }
+
+  Future<void> _enrol(UserProfile user) async {
+    final result = await showDialog<({String programmeId, bool waive})>(
+      context: context,
+      builder: (context) => _EnrolDialog(user: user),
+    );
+    if (result == null) return;
+    try {
+      await ref
+          .read(authControllerProvider.notifier)
+          .enrol(
+            userId: user.id,
+            programmeId: result.programmeId,
+            waivePayment: result.waive,
+          );
+      _report(
+        result.waive
+            ? '${user.email} enrolled with payment waived.'
+            : '${user.email} enrolled; payment pending.',
+      );
+    } on AuthFailure catch (failure) {
+      _report(failure.message, error: true);
+    }
+  }
+
+  Future<void> _changeRole(UserProfile user) async {
+    final role = await showDialog<UserRole>(
+      context: context,
+      builder: (context) => _RoleDialog(current: user.role),
+    );
+    if (role == null || role == user.role) return;
+    try {
+      await ref.read(authControllerProvider.notifier).setRole(user.id, role);
+      _reload();
+      _report('${user.email} is now ${role.label}.');
+    } on AuthFailure catch (failure) {
+      _report(failure.message, error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      backgroundColor: WEAColors.background,
+      appBar: AppBar(
+        backgroundColor: WEAColors.navy,
+        foregroundColor: WEAColors.offWhite,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        toolbarHeight: 84,
+        titleSpacing: WEAInsets.lg,
+        title: const WEABrandLockup(height: 56, onDark: true),
+        actions: [
+          TextButton(
+            onPressed: () => context.go('/profile'),
+            style: TextButton.styleFrom(foregroundColor: WEAColors.offWhite),
+            child: const Text('PROFILE'),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(
+              left: WEAInsets.xs,
+              right: WEAInsets.lg,
+            ),
+            child: SizedBox(
+              height: 36,
+              child: WEAOutlinedButton(
+                label: 'SIGN OUT',
+                compact: true,
+                onDark: true,
+                onPressed: () async {
+                  await ref.read(authControllerProvider.notifier).signOut();
+                  if (context.mounted) context.go('/');
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        child: WEAContainer(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical: WEAInsets.sectionSmall,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'SUPER ADMINISTRATION',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: WEAColors.accent,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: WEAInsets.sm),
+                Text('User management', style: theme.textTheme.displayMedium),
+                const SizedBox(height: WEAInsets.md),
+                Text(
+                  'Create accounts with a one-time password, grant roles, place '
+                  'learners on programmes and remove accounts.',
+                  style: theme.textTheme.bodyLarge,
+                ),
+                const SizedBox(height: WEAInsets.lg),
+                Wrap(
+                  spacing: WEAInsets.sm,
+                  runSpacing: WEAInsets.sm,
+                  children: [
+                    SizedBox(
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        onPressed: _addUser,
+                        icon: const Icon(Icons.person_add_alt, size: 18),
+                        label: const Text('ADD USER'),
+                      ),
+                    ),
+                    WEAOutlinedButton(label: 'REFRESH', onPressed: _reload),
+                  ],
+                ),
+                const SizedBox(height: WEAInsets.xl),
+                FutureBuilder<List<UserProfile>>(
+                  future: _users,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Padding(
+                        padding: EdgeInsets.all(WEAInsets.xl),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (snapshot.hasError) {
+                      final error = snapshot.error;
+                      return WEAErrorState(
+                        message: error is AuthFailure
+                            ? error.message
+                            : 'Unable to load accounts.',
+                        onRetry: _reload,
+                      );
+                    }
+                    final users = snapshot.data ?? const <UserProfile>[];
+                    if (users.isEmpty) {
+                      return const WEAEmptyState(
+                        title: 'No accounts yet',
+                        message: 'Create the first account to get started.',
+                      );
+                    }
+                    return _UserTable(
+                      users: users,
+                      onDelete: _deleteUser,
+                      onEnrol: _enrol,
+                      onChangeRole: _changeRole,
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UserTable extends StatelessWidget {
+  const _UserTable({
+    required this.users,
+    required this.onDelete,
+    required this.onEnrol,
+    required this.onChangeRole,
+  });
+
+  final List<UserProfile> users;
+  final ValueChanged<UserProfile> onDelete;
+  final ValueChanged<UserProfile> onEnrol;
+  final ValueChanged<UserProfile> onChangeRole;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      border: Border.all(color: WEAColors.border),
+      borderRadius: BorderRadius.circular(WEAInsets.radius),
+    ),
+    child: Column(
+      children: [
+        for (var index = 0; index < users.length; index++)
+          Container(
+            padding: const EdgeInsets.all(WEAInsets.md),
+            decoration: BoxDecoration(
+              border: index == 0
+                  ? null
+                  : const Border(
+                      top: BorderSide(color: WEAColors.border),
+                    ),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final identity = _Identity(user: users[index]);
+                final actions = _Actions(
+                  user: users[index],
+                  onDelete: onDelete,
+                  onEnrol: onEnrol,
+                  onChangeRole: onChangeRole,
+                );
+                if (constraints.maxWidth < 620) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      identity,
+                      const SizedBox(height: WEAInsets.sm),
+                      actions,
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: identity),
+                    actions,
+                  ],
+                );
+              },
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+class _Identity extends StatelessWidget {
+  const _Identity({required this.user});
+
+  final UserProfile user;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 18,
+          backgroundColor: WEAColors.elevated,
+          foregroundColor: WEAColors.navy,
+          child: Text(user.initials, style: theme.textTheme.labelSmall),
+        ),
+        const SizedBox(width: WEAInsets.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(user.fullName, style: theme.textTheme.titleMedium),
+              Text(user.email, style: theme.textTheme.bodySmall),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                children: [
+                  Text(
+                    user.role.label.toUpperCase(),
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: WEAColors.accent,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  Text(
+                    '· ${user.status.label}',
+                    style: theme.textTheme.labelSmall,
+                  ),
+                  if (user.mustChangePassword)
+                    Text(
+                      '· temporary password',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: WEAColors.warning,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Actions extends StatelessWidget {
+  const _Actions({
+    required this.user,
+    required this.onDelete,
+    required this.onEnrol,
+    required this.onChangeRole,
+  });
+
+  final UserProfile user;
+  final ValueChanged<UserProfile> onDelete;
+  final ValueChanged<UserProfile> onEnrol;
+  final ValueChanged<UserProfile> onChangeRole;
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+    spacing: WEAInsets.xs,
+    children: [
+      IconButton(
+        tooltip: 'Enrol on a programme',
+        onPressed: () => onEnrol(user),
+        icon: const Icon(Icons.school_outlined, size: 20),
+      ),
+      IconButton(
+        tooltip: 'Change role',
+        onPressed: () => onChangeRole(user),
+        icon: const Icon(Icons.badge_outlined, size: 20),
+      ),
+      IconButton(
+        tooltip: 'Delete account',
+        onPressed: () => onDelete(user),
+        icon: const Icon(Icons.delete_outline, size: 20),
+        color: WEAColors.error,
+      ),
+    ],
+  );
+}
+
+class _AddUserDialog extends StatefulWidget {
+  const _AddUserDialog();
+
+  @override
+  State<_AddUserDialog> createState() => _AddUserDialogState();
+}
+
+class _AddUserDialogState extends State<_AddUserDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _email = TextEditingController();
+  final _first = TextEditingController();
+  final _last = TextEditingController();
+  var _role = UserRole.learner;
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _first.dispose();
+    _last.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Add user'),
+    content: SizedBox(
+      width: 420,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(labelText: 'Email address'),
+              validator: (value) {
+                final text = value?.trim() ?? '';
+                if (text.isEmpty) return 'Enter an email address.';
+                if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(text)) {
+                  return 'Enter a valid email address.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: WEAInsets.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _first,
+                    decoration: const InputDecoration(labelText: 'First name'),
+                  ),
+                ),
+                const SizedBox(width: WEAInsets.sm),
+                Expanded(
+                  child: TextFormField(
+                    controller: _last,
+                    decoration: const InputDecoration(labelText: 'Last name'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: WEAInsets.sm),
+            DropdownButtonFormField<UserRole>(
+              initialValue: _role,
+              decoration: const InputDecoration(labelText: 'Role'),
+              items: [
+                for (final role in UserRole.values)
+                  DropdownMenuItem(value: role, child: Text(role.label)),
+              ],
+              onChanged: (value) => setState(() => _role = value ?? _role),
+            ),
+            const SizedBox(height: WEAInsets.sm),
+            Text(
+              'The account is created with a one-time password that must be '
+              'changed at first sign-in.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('CANCEL'),
+      ),
+      TextButton(
+        onPressed: () {
+          if (!(_formKey.currentState?.validate() ?? false)) return;
+          Navigator.of(context).pop((
+            email: _email.text.trim(),
+            role: _role,
+            first: _first.text.trim(),
+            last: _last.text.trim(),
+          ));
+        },
+        child: const Text('CREATE'),
+      ),
+    ],
+  );
+}
+
+/// Shows the generated password once. It is not recoverable afterwards.
+class _TemporaryPasswordDialog extends StatelessWidget {
+  const _TemporaryPasswordDialog({
+    required this.email,
+    required this.password,
+  });
+
+  final String email;
+  final String password;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Account created'),
+    content: SizedBox(
+      width: 420,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Share these details with $email.'),
+          const SizedBox(height: WEAInsets.md),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(WEAInsets.md),
+            decoration: BoxDecoration(
+              color: WEAColors.surfaceMuted,
+              border: Border.all(color: WEAColors.border),
+              borderRadius: BorderRadius.circular(WEAInsets.smallRadius),
+            ),
+            child: SelectableText(
+              password,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontFamily: 'monospace',
+                letterSpacing: 1.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: WEAInsets.sm),
+          Text(
+            'This password is shown only once and must be changed at first '
+            'sign-in.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('DONE'),
+      ),
+    ],
+  );
+}
+
+class _RoleDialog extends StatefulWidget {
+  const _RoleDialog({required this.current});
+
+  final UserRole current;
+
+  @override
+  State<_RoleDialog> createState() => _RoleDialogState();
+}
+
+class _RoleDialogState extends State<_RoleDialog> {
+  late UserRole _role = widget.current;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Change role'),
+    content: SizedBox(
+      width: 360,
+      child: RadioGroup<UserRole>(
+        groupValue: _role,
+        onChanged: (value) => setState(() => _role = value ?? _role),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final role in UserRole.values)
+              RadioListTile<UserRole>(
+                value: role,
+                title: Text(role.label),
+                subtitle: role.isPrivileged
+                    ? const Text('Privileged — grant deliberately')
+                    : null,
+              ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('CANCEL'),
+      ),
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(_role),
+        child: const Text('APPLY'),
+      ),
+    ],
+  );
+}
+
+class _EnrolDialog extends StatefulWidget {
+  const _EnrolDialog({required this.user});
+
+  final UserProfile user;
+
+  @override
+  State<_EnrolDialog> createState() => _EnrolDialogState();
+}
+
+class _EnrolDialogState extends State<_EnrolDialog> {
+  String? _programmeId;
+  var _waive = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final programmes = PublicContentService.programmes;
+    return AlertDialog(
+      title: const Text('Enrol on a programme'),
+      content: SizedBox(
+        width: 460,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Learner: ${widget.user.email}'),
+            const SizedBox(height: WEAInsets.md),
+            DropdownButtonFormField<String>(
+              initialValue: _programmeId,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Programme'),
+              items: [
+                for (final programme in programmes)
+                  DropdownMenuItem(
+                    value: programme.id,
+                    child: Text(
+                      programme.title,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (value) => setState(() => _programmeId = value),
+            ),
+            const SizedBox(height: WEAInsets.sm),
+            CheckboxListTile(
+              value: _waive,
+              onChanged: (value) => setState(() => _waive = value ?? false),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('Waive payment'),
+              subtitle: const Text(
+                'Records the place as granted without payment.',
+              ),
+            ),
+            Text(
+              'An account may hold places on several programmes; enrolling '
+              'again does not require a new account.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('CANCEL'),
+        ),
+        TextButton(
+          onPressed: _programmeId == null
+              ? null
+              : () => Navigator.of(
+                  context,
+                ).pop((programmeId: _programmeId!, waive: _waive)),
+          child: const Text('ENROL'),
+        ),
+      ],
+    );
+  }
+}

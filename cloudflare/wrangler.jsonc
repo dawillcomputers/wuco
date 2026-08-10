@@ -8,8 +8,13 @@
     "enabled": true
   },
   "vars": {
-    "ALLOWED_ORIGIN": "https://wuco.pages.dev"
+    "ALLOWED_ORIGIN": "https://wuco.pages.dev",
+    // Account created by the one-time /api/auth/bootstrap call.
+    "SUPERADMIN_EMAIL": "proptgoservices@gmail.com"
   },
+  // BOOTSTRAP_TOKEN is a secret, not a var. Set it with:
+  //   npx wrangler secret put BOOTSTRAP_TOKEN
+  // It guards the one-time Super Admin bootstrap endpoint.
   "d1_databases": [
     {
       "binding": "WEA_DB",

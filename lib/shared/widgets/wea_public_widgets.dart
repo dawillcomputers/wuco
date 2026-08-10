@@ -299,66 +299,128 @@ class WEAEventPreview extends StatelessWidget {
 
 class WEAFooter extends StatelessWidget {
   const WEAFooter({super.key});
+
+  /// Links grouped the way a visitor thinks about them, rather than one long
+  /// undifferentiated row.
+  static const _groups = <(String, List<(String, String)>)>[
+    (
+      'Study',
+      [
+        ('Programmes', '/programmes'),
+        ('Admissions', '/admissions'),
+        ('Apply', '/apply'),
+      ],
+    ),
+    (
+      'Institution',
+      [
+        ('About WEA', '/about'),
+        ('Faculty', '/faculty'),
+        ('Research', '/research'),
+      ],
+    ),
+    (
+      'Community',
+      [
+        ('Events', '/events'),
+        ('Professional Network', '/professional-network'),
+        ('Contact', '/contact'),
+      ],
+    ),
+  ];
+
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: const BoxDecoration(color: WEAColors.navy),
     child: WEAContainer(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 56),
+        padding: const EdgeInsets.only(top: 72, bottom: 32),
         child: ResponsiveBuilder(
           builder: (context, breakpoint) {
             final isMobile = breakpoint == WEABreakpoint.mobile;
-            return Column(
+            final isTablet = breakpoint == WEABreakpoint.tablet;
+            final theme = Theme.of(context);
+
+            final identity = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                WEABrandLockup(height: isMobile ? 88 : 108, onDark: true),
-                const SizedBox(height: 24),
+                WEABrandLockup(height: isMobile ? 92 : 112, onDark: true),
+                const SizedBox(height: 22),
                 ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 420),
+                  constraints: const BoxConstraints(maxWidth: 340),
                   child: Text(
-                    "Africa's Executive Academy for Leadership, Trade, Investment and Professional Development",
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: WEAColors.offWhite.withValues(alpha: .78),
+                    "Africa's Executive Academy for Leadership, Trade, "
+                    'Investment and Professional Development.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: WEAColors.offWhite.withValues(alpha: .72),
+                      height: 1.6,
                     ),
                   ),
                 ),
-                const SizedBox(height: 36),
-                Wrap(
-                  spacing: 22,
-                  runSpacing: 14,
-                  children: [
-                    for (final link in const [
-                      ('Programmes', '/programmes'),
-                      ('Faculty', '/faculty'),
-                      ('About', '/about'),
-                      ('Admissions', '/admissions'),
-                      ('Research', '/research'),
-                      ('Events', '/events'),
-                      ('Professional Network', '/professional-network'),
-                      ('Contact', '/contact'),
-                      ('Privacy', '/privacy'),
-                      ('Terms', '/terms'),
-                    ])
-                      TextButton(
-                        onPressed: () => context.go(link.$2),
-                        style: TextButton.styleFrom(
-                          foregroundColor: WEAColors.offWhite,
-                        ),
-                        child: Text(link.$1.toUpperCase()),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 36),
-                Divider(color: WEAColors.offWhite.withValues(alpha: .18)),
-                const SizedBox(height: 18),
+                const SizedBox(height: 20),
                 Text(
-                  isMobile
-                      ? '© 2026 WUCO Executive Academy.\nA division of the World United Consumer Organisation.'
-                      : '© 2026 WUCO Executive Academy. A division of the World United Consumer Organisation.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: WEAColors.offWhite.withValues(alpha: .62),
+                  'BACKED BY WUCO',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: WEAColors.accentSoft,
+                    letterSpacing: 1.6,
                   ),
                 ),
+              ],
+            );
+
+            final columns = [
+              for (final group in _groups)
+                _FooterColumn(title: group.$1, links: group.$2),
+            ];
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (isMobile)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      identity,
+                      const SizedBox(height: 40),
+                      for (final column in columns)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 28),
+                          child: column,
+                        ),
+                    ],
+                  )
+                else if (isTablet)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      identity,
+                      const SizedBox(height: 44),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          for (final column in columns)
+                            Expanded(child: column),
+                        ],
+                      ),
+                    ],
+                  )
+                else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 5, child: identity),
+                      const SizedBox(width: 48),
+                      for (final column in columns)
+                        Expanded(flex: 3, child: column),
+                    ],
+                  ),
+                const SizedBox(height: 48),
+                Container(
+                  height: 1,
+                  color: WEAColors.offWhite.withValues(alpha: .14),
+                ),
+                const SizedBox(height: 20),
+                _LegalBar(isMobile: isMobile),
               ],
             );
           },
@@ -366,4 +428,108 @@ class WEAFooter extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _FooterColumn extends StatelessWidget {
+  const _FooterColumn({required this.title, required this.links});
+
+  final String title;
+  final List<(String, String)> links;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title.toUpperCase(),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: WEAColors.offWhite,
+            letterSpacing: 1.6,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 16),
+        for (final link in links)
+          _FooterLink(label: link.$1, path: link.$2),
+      ],
+    );
+  }
+}
+
+/// Quiet by default, brightening on hover — no layout shift either way.
+class _FooterLink extends StatefulWidget {
+  const _FooterLink({required this.label, required this.path});
+
+  final String label;
+  final String path;
+
+  @override
+  State<_FooterLink> createState() => _FooterLinkState();
+}
+
+class _FooterLinkState extends State<_FooterLink> {
+  var _hovering = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: SystemMouseCursors.click,
+    onEnter: (_) => setState(() => _hovering = true),
+    onExit: (_) => setState(() => _hovering = false),
+    child: GestureDetector(
+      onTap: () => context.go(widget.path),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 160),
+          style: Theme.of(context).textTheme.bodyMedium!.copyWith(
+            color: _hovering
+                ? WEAColors.accentSoft
+                : WEAColors.offWhite.withValues(alpha: .70),
+          ),
+          child: Text(widget.label),
+        ),
+      ),
+    ),
+  );
+}
+
+class _LegalBar extends StatelessWidget {
+  const _LegalBar({required this.isMobile});
+
+  final bool isMobile;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copyright = Text(
+      '© 2026 WUCO Executive Academy. A division of the World United Consumer Organisation.',
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: WEAColors.offWhite.withValues(alpha: .55),
+      ),
+    );
+    final legal = Wrap(
+      spacing: 20,
+      children: const [
+        _FooterLink(label: 'Privacy', path: '/privacy'),
+        _FooterLink(label: 'Terms', path: '/terms'),
+      ],
+    );
+
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [legal, const SizedBox(height: 8), copyright],
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(child: copyright),
+        const SizedBox(width: 24),
+        legal,
+      ],
+    );
+  }
 }

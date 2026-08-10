@@ -1,2 +1,9 @@
 # Local-only values. Copy to .dev.vars; never commit .dev.vars.
 ALLOWED_ORIGIN=http://localhost:3000
+
+# Address promoted to Super Admin by the one-time bootstrap endpoint.
+SUPERADMIN_EMAIL=proptgoservices@gmail.com
+
+# Guards POST /api/auth/bootstrap. Use a long random value locally, and set the
+# production value with `npx wrangler secret put BOOTSTRAP_TOKEN`.
+BOOTSTRAP_TOKEN=replace-with-a-long-random-string

@@ -24,6 +24,8 @@ jobs:
       run:
         working-directory: cloudflare
     env:
+      # Trailing whitespace in the secret produces a malformed Authorization
+      # header (Cloudflare code 6111), so the value is trimmed before use.
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - name: Check out source
@@ -36,6 +38,24 @@ jobs:
 
       - name: Install Worker dependencies
         run: npm install
+
+      - name: Verify Cloudflare credentials
+        # Fails in seconds with a readable message rather than part-way through
+        # a migration. `whoami` exercises the same auth path as deploy.
+        run: |
+          TOKEN="$(printf '%s' "${CLOUDFLARE_API_TOKEN}" | tr -d '[:space:]')"
+          if [ -z "$TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is empty. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          # The trimmed value differs from the registered secret, so it is not
+          # masked automatically. Register it before it can reach a log.
+          echo "::add-mask::$TOKEN"
+          echo "CLOUDFLARE_API_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          if ! CLOUDFLARE_API_TOKEN="$TOKEN" npx wrangler whoami; then
+            echo "::error::Cloudflare rejected the API token. Create an API Token (not a Global API Key) with Account: D1 Edit, Account: Workers Scripts Edit, User: Memberships Read, then re-add the secret with no surrounding whitespace."
+            exit 1
+          fi
 
       - name: Apply production D1 migrations
         run: npx wrangler d1 migrations apply WEA_DB --remote
