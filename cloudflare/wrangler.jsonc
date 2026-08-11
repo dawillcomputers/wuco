@@ -22,5 +22,15 @@
       "database_id": "892c42de-fe7d-424f-9146-d127315b4796",
       "migrations_dir": "migrations"
     }
+  ],
+  // Programme, area and faculty imagery uploaded through the Super Admin CMS.
+  // The bucket stays private; assets are served through GET /api/media/:key so
+  // no public bucket domain has to be configured. The deploy workflow creates
+  // it if it does not exist.
+  "r2_buckets": [
+    {
+      "binding": "WEA_MEDIA",
+      "bucket_name": "wuco-media"
+    }
   ]
 }

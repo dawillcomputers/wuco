@@ -39,6 +39,11 @@ jobs:
       - name: Install Worker dependencies
         run: npm install
 
+      - name: Type-check the Worker
+        # Runs before anything is touched in Cloudflare, so a type error never
+        # leaves a half-applied release.
+        run: npm run typecheck
+
       - name: Verify Cloudflare credentials
         # Fails in seconds with a readable message rather than part-way through
         # a migration. `whoami` exercises the same auth path as deploy.
@@ -56,6 +61,14 @@ jobs:
             echo "::error::Cloudflare rejected the API token. Create an API Token (not a Global API Key) with Account: D1 Edit, Account: Workers Scripts Edit, User: Memberships Read, then re-add the secret with no surrounding whitespace."
             exit 1
           fi
+
+      - name: Ensure the media bucket exists
+        # `wrangler deploy` fails if a declared R2 binding has no bucket, so the
+        # bucket is created first. Creation is idempotent in effect: an existing
+        # bucket returns an error that is safe to ignore, and a genuine failure
+        # (R2 not enabled on the account) surfaces in the deploy step with a
+        # clearer message than a half-applied release.
+        run: npx wrangler r2 bucket create wuco-media || echo "Bucket already exists or R2 is unavailable; continuing."
 
       - name: Apply production D1 migrations
         run: npx wrangler d1 migrations apply WEA_DB --remote

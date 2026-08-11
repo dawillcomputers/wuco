@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../app/theme/app_colors.dart';
@@ -7,6 +8,8 @@ import '../../../../core/responsive/responsive.dart';
 import '../../../../data/services/public_content_service.dart';
 import '../../../../shared/components/wea_components.dart';
 import '../../../../shared/widgets/wea_public_widgets.dart';
+import '../../../catalogue/application/catalogue_providers.dart';
+import '../../../catalogue/presentation/widgets/catalogue_cards.dart';
 
 class HomePublicSections extends StatelessWidget {
   const HomePublicSections({super.key});
@@ -146,31 +149,7 @@ class _ProgrammeShowcase extends StatelessWidget {
           actionPath: '/programmes',
         ),
         const SizedBox(height: 40),
-        ResponsiveBuilder(
-          builder: (context, breakpoint) {
-            final columns = breakpoint == WEABreakpoint.mobile
-                ? 1
-                : breakpoint == WEABreakpoint.tablet
-                ? 2
-                : 3;
-            return GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: 6,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: columns,
-                mainAxisSpacing: 20,
-                crossAxisSpacing: 20,
-                childAspectRatio: breakpoint == WEABreakpoint.mobile
-                    ? .50
-                    : .54,
-              ),
-              itemBuilder: (_, index) => WEAProgrammeCard(
-                programme: PublicContentService.programmes[index],
-              ),
-            );
-          },
-        ),
+        const _FeaturedProgrammes(),
         const SizedBox(height: 28),
         if (WEAResponsive.isMobile(context))
           WEATextButton(
@@ -180,6 +159,38 @@ class _ProgrammeShowcase extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Featured programmes, read from the live catalogue.
+///
+/// Which programmes appear here is a Super Admin decision (the "featured" flag
+/// on a programme), not a code change.
+class _FeaturedProgrammes extends ConsumerWidget {
+  const _FeaturedProgrammes();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final featured = ref.watch(featuredProgrammesProvider);
+
+    return featured.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 48),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      // The homepage should never break because the catalogue is briefly
+      // unreachable; it simply omits the section.
+      error: (_, _) => const SizedBox.shrink(),
+      data: (programmes) {
+        if (programmes.isEmpty) return const SizedBox.shrink();
+        return CatalogueGrid(
+          children: [
+            for (final programme in programmes)
+              CatalogueProgrammeCard(programme: programme),
+          ],
+        );
+      },
+    );
+  }
 }
 
 class _WhyWEA extends StatelessWidget {

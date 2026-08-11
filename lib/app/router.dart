@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,9 +14,34 @@ import '../features/authentication/presentation/reset_password_screen.dart';
 import '../features/authentication/presentation/verify_email_screen.dart';
 import '../features/dashboards/presentation/role_placeholder_screen.dart';
 import '../features/design_system/presentation/design_system_screen.dart';
+import '../features/catalogue/presentation/area_screen.dart';
+import '../features/catalogue/presentation/catalogue_screen.dart';
+import '../features/catalogue/presentation/programme_screen.dart';
+import '../features/catalogue/presentation/registration_screen.dart';
 import '../features/foundation/presentation/not_found_screen.dart';
 import '../features/home/presentation/home_screen.dart';
+import '../features/learner/presentation/pages/ai_mentor_page.dart';
+import '../features/learner/presentation/pages/assessment_detail_page.dart';
+import '../features/learner/presentation/pages/assessment_page.dart';
+import '../features/learner/presentation/pages/certificate_detail_page.dart';
+import '../features/learner/presentation/pages/certificate_page.dart';
+import '../features/learner/presentation/pages/course_detail_page.dart';
+import '../features/learner/presentation/pages/course_list_page.dart';
+import '../features/learner/presentation/pages/cpd_page.dart';
+import '../features/learner/presentation/pages/credential_page.dart';
+import '../features/learner/presentation/pages/learner_dashboard_page.dart';
+import '../features/learner/presentation/pages/learner_profile_page.dart';
+import '../features/learner/presentation/pages/learner_settings_page.dart';
+import '../features/learner/presentation/pages/learning_page.dart';
+import '../features/learner/presentation/pages/notifications_page.dart';
+import '../features/learner/presentation/pages/professional_network_page.dart';
+import '../features/learner/presentation/pages/programme_detail_page.dart';
+import '../features/learner/presentation/pages/programme_list_page.dart';
+import '../features/learner/presentation/pages/result_detail_page.dart';
+import '../features/learner/presentation/pages/result_page.dart';
+import '../features/learner/presentation/shell/learner_shell.dart';
 import '../features/public_site/presentation/public_pages.dart';
+import '../features/super_admin/presentation/cms/cms_screen.dart';
 import '../features/super_admin/presentation/super_admin_console.dart';
 
 /// Routes that require a signed-in account.
@@ -95,15 +119,102 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ProfileScreen(),
       ),
 
-      // --- Role destinations ------------------------------------------------
+      // --- Learner area -----------------------------------------------------
+      // Wrapped in a shell so the sidebar, header and search persist across
+      // navigation instead of being rebuilt by each page.
+      ShellRoute(
+        builder: (context, state, child) => LearnerShell(child: child),
+        routes: [
+          _learnerRoute('/learner', (state) => const LearnerDashboardPage()),
+          GoRoute(
+            path: '/learner/dashboard',
+            redirect: (context, state) => '/learner',
+          ),
+          _learnerRoute(
+            '/learner/programmes',
+            (state) => const ProgrammeListPage(),
+          ),
+          _learnerRoute(
+            '/learner/programmes/:programmeId',
+            (state) => ProgrammeDetailPage(
+              programmeId: state.pathParameters['programmeId'] ?? '',
+            ),
+          ),
+          _learnerRoute('/learner/courses', (state) => const CourseListPage()),
+          _learnerRoute(
+            '/learner/courses/:courseId',
+            (state) => CourseDetailPage(
+              courseId: state.pathParameters['courseId'] ?? '',
+            ),
+          ),
+          _learnerRoute(
+            '/learner/assessments',
+            (state) => const AssessmentPage(),
+          ),
+          _learnerRoute(
+            '/learner/assessments/:assessmentId',
+            (state) => AssessmentDetailPage(
+              assessmentId: state.pathParameters['assessmentId'] ?? '',
+            ),
+          ),
+          _learnerRoute('/learner/results', (state) => const ResultPage()),
+          _learnerRoute(
+            '/learner/results/:resultId',
+            (state) => ResultDetailPage(
+              resultId: state.pathParameters['resultId'] ?? '',
+            ),
+          ),
+          _learnerRoute(
+            '/learner/certificates',
+            (state) => const CertificatePage(),
+          ),
+          _learnerRoute(
+            '/learner/certificates/:certificateId',
+            (state) => CertificateDetailPage(
+              certificateId: state.pathParameters['certificateId'] ?? '',
+            ),
+          ),
+          _learnerRoute(
+            '/learner/credentials',
+            (state) => const CredentialPage(),
+          ),
+          _learnerRoute('/learner/cpd', (state) => const CpdPage()),
+          _learnerRoute(
+            '/learner/notifications',
+            (state) => const NotificationsPage(),
+          ),
+          _learnerRoute(
+            '/learner/professional-network',
+            (state) => const ProfessionalNetworkPage(),
+          ),
+          _learnerRoute('/learner/ai-mentor', (state) => const AiMentorPage()),
+          _learnerRoute(
+            '/learner/profile',
+            (state) => const LearnerProfilePage(),
+          ),
+          _learnerRoute(
+            '/learner/settings',
+            (state) => const LearnerSettingsPage(),
+          ),
+        ],
+      ),
+
+      // Learning is a focused mode: full width, outside the dashboard shell.
       GoRoute(
-        path: '/learner',
-        builder: (context, state) => const RolePlaceholderScreen(
-          title: 'Learner area',
-          description:
-              'Your programmes, materials and certificates will appear here.',
+        path: '/learner/courses/:courseId/learn',
+        builder: (context, state) => LearningPage(
+          courseId: state.pathParameters['courseId'] ?? '',
         ),
       ),
+      GoRoute(
+        path: '/learner/courses/:courseId/lessons/:lessonId',
+        builder: (context, state) => LearningPage(
+          courseId: state.pathParameters['courseId'] ?? '',
+          lessonId: state.pathParameters['lessonId'],
+        ),
+      ),
+
+      // --- Other role destinations ------------------------------------------
       GoRoute(
         path: '/lecturer',
         builder: (context, state) => const RolePlaceholderScreen(
@@ -123,6 +234,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/super-admin',
         builder: (context, state) => const SuperAdminConsole(),
+      ),
+      // Catalogue, media, registration and payment administration.
+      GoRoute(
+        path: '/super-admin/content',
+        builder: (context, state) => const CmsScreen(),
       ),
       GoRoute(
         path: '/application',
@@ -179,14 +295,26 @@ final routerProvider = Provider<GoRouter>((ref) {
           ctaPath: '/programmes',
         ),
       ),
+      // The catalogue is served from the API, so these pages reflect whatever
+      // a Super Admin has published without a release.
       GoRoute(
         path: '/programmes',
-        builder: (context, state) => const ProgrammesScreen(),
+        builder: (context, state) => const CatalogueScreen(),
       ),
       GoRoute(
-        path: '/programmes/:id',
+        path: '/programmes/area/:slug',
         builder: (context, state) =>
-            ProgrammeDetailScreen(id: state.pathParameters['id'] ?? ''),
+            AreaScreen(slug: state.pathParameters['slug'] ?? ''),
+      ),
+      GoRoute(
+        path: '/programmes/:slug',
+        builder: (context, state) =>
+            ProgrammeScreen(slug: state.pathParameters['slug'] ?? ''),
+      ),
+      GoRoute(
+        path: '/register/:slug',
+        builder: (context, state) =>
+            RegistrationScreen(slug: state.pathParameters['slug'] ?? ''),
       ),
       GoRoute(
         path: '/admissions',
@@ -225,6 +353,29 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
+/// A learner page with the area's shared transition.
+///
+/// A short crossfade rather than a slide: within a dashboard shell only the
+/// content pane changes, and lateral motion there reads as a glitch.
+GoRoute _learnerRoute(String path, Widget Function(GoRouterState) build) =>
+    GoRoute(
+      path: path,
+      pageBuilder: (context, state) => CustomTransitionPage(
+        key: state.pageKey,
+        child: build(state),
+        transitionDuration: const Duration(milliseconds: 180),
+        reverseTransitionDuration: const Duration(milliseconds: 140),
+        transitionsBuilder: (context, animation, secondary, child) =>
+            FadeTransition(
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOut,
+              ),
+              child: child,
+            ),
+      ),
+    );
+
 /// Decides where a request may go. Kept as a pure function so route protection
 /// can be tested without building an application.
 @visibleForTesting
@@ -232,11 +383,17 @@ String? guardLocation(AuthState auth, String location) =>
     _guard(auth, location);
 
 String? _guard(AuthState auth, String location) {
-  // Session not yet resolved: hold on the splash so the login page never
+  // Session not yet inspected: hold on the splash so the login page never
   // flashes for someone who is already signed in.
-  if (!auth.isResolved) {
+  if (auth is AuthInitial) {
     return location == '/splash' ? null : '/splash';
   }
+
+  // A transient operation — signing in, saving a profile, changing a password
+  // — must leave the learner where they are. Treating it like an unresolved
+  // session would bounce them through the splash and back to their landing
+  // route mid-edit.
+  if (auth is AuthLoading) return null;
   if (location == '/splash') {
     final profile = auth.profile;
     return auth.isAuthenticated && profile != null

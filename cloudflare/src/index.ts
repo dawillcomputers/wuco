@@ -18,9 +18,37 @@ import {
   temporaryPassword,
   verifyPassword,
 } from './auth';
+import {
+  getArea,
+  getProgramme,
+  listAreas,
+  listFaculty,
+  listPaymentMethods,
+  listProgrammes,
+  listSettings,
+  listTypes,
+} from './catalogue';
+import { corsHeaders, fail, json, readJson, str } from './http';
+import { deleteMedia, listMedia, serveMedia, uploadMedia } from './media';
+import {
+  createResource,
+  deleteResource,
+  listResource,
+  reorderResource,
+  resourceByName,
+  updateResource,
+} from './resources';
+import {
+  listRegistrations,
+  registrationContext,
+  reviewRegistration,
+  submitRegistration,
+} from './registrations';
 
 export interface Env {
   WEA_DB: D1Database;
+  /** Uploaded programme and faculty imagery. */
+  WEA_MEDIA: R2Bucket;
   ALLOWED_ORIGIN: string;
   /** Secret guarding the one-time Super Admin bootstrap. */
   BOOTSTRAP_TOKEN?: string;
@@ -54,25 +82,6 @@ interface UserRow {
   created_at: string;
   updated_at: string;
 }
-
-const CORS_METHODS = 'GET, POST, PATCH, DELETE, OPTIONS';
-const CORS_HEADERS = 'Content-Type, Authorization';
-
-function corsHeaders(origin?: string) {
-  return {
-    'Access-Control-Allow-Origin': origin ?? 'null',
-    'Access-Control-Allow-Methods': CORS_METHODS,
-    'Access-Control-Allow-Headers': CORS_HEADERS,
-    Vary: 'Origin',
-  };
-}
-
-const json = (body: unknown, status = 200, origin?: string) =>
-  Response.json(body, { status, headers: corsHeaders(origin) });
-
-/** Error shape the Flutter client maps onto its typed failures. */
-const fail = (code: string, status: number, origin?: string, message?: string) =>
-  json({ error: { code, message: message ?? null } }, status, origin);
 
 /** Strips credentials and internal columns before anything is returned. */
 function toProfile(row: UserRow) {
@@ -155,11 +164,17 @@ async function issueToken(
   return token;
 }
 
+/// Explicit union so `'error' in result` narrows to a definite `userId`.
+/// Neither member may declare the other's key, or `in` stops discriminating.
+type ConsumedToken =
+  | { error: 'INVALID_LINK' | 'EXPIRED_LINK' }
+  | { userId: string };
+
 async function consumeToken(
   env: Env,
   token: string,
   purpose: 'EMAIL_VERIFICATION' | 'PASSWORD_RESET',
-) {
+): Promise<ConsumedToken> {
   const tokenHash = await sha256(token);
   const row = await env.WEA_DB.prepare(
     'SELECT id, user_id, expires_at, used_at FROM auth_tokens WHERE token_hash = ?1 AND purpose = ?2',
@@ -201,16 +216,6 @@ async function setPassword(env: Env, userId: string, password: string) {
     .run();
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown>> {
-  try {
-    return ((await request.json()) as Record<string, unknown>) ?? {};
-  } catch {
-    return {};
-  }
-}
-
-const str = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
-
 /** Only echo link tokens when the development flag is explicitly enabled. */
 const devToken = (env: Env, token?: string) =>
   env.EXPOSE_AUTH_TOKENS === 'true' ? (token ?? null) : null;
@@ -237,6 +242,70 @@ export default {
           .bind('service_status')
           .first<{ value: string }>();
         return json({ service: 'wuco-api', status: result?.value ?? 'ready' }, 200, allowed);
+      }
+
+      // --- Public catalogue -------------------------------------------------
+      // Everything here reads PUBLISHED rows only. Draft and archived content
+      // is never selected, so it cannot be reached by guessing a URL.
+
+      if (method === 'GET' && path === '/api/catalogue') {
+        const [areas, types, settings] = await Promise.all([
+          listAreas(env.WEA_DB),
+          listTypes(env.WEA_DB),
+          listSettings(env.WEA_DB),
+        ]);
+        return json({ areas, types, settings }, 200, allowed);
+      }
+
+      if (method === 'GET' && path === '/api/catalogue/areas') {
+        return json({ areas: await listAreas(env.WEA_DB) }, 200, allowed);
+      }
+
+      const areaMatch = path.match(/^\/api\/catalogue\/areas\/([^/]+)$/);
+      if (method === 'GET' && areaMatch) {
+        const result = await getArea(env.WEA_DB, decodeURIComponent(areaMatch[1]));
+        if (!result) return fail('NOT_FOUND', 404, allowed);
+        return json(result, 200, allowed);
+      }
+
+      if (method === 'GET' && path === '/api/catalogue/types') {
+        return json({ types: await listTypes(env.WEA_DB) }, 200, allowed);
+      }
+
+      if (method === 'GET' && path === '/api/catalogue/programmes') {
+        return json(
+          { programmes: await listProgrammes(env.WEA_DB, url.searchParams) },
+          200,
+          allowed,
+        );
+      }
+
+      const programmeMatch = path.match(/^\/api\/catalogue\/programmes\/([^/]+)$/);
+      if (method === 'GET' && programmeMatch) {
+        const result = await getProgramme(
+          env.WEA_DB,
+          decodeURIComponent(programmeMatch[1]),
+        );
+        if (!result) return fail('NOT_FOUND', 404, allowed);
+        return json(result, 200, allowed);
+      }
+
+      if (method === 'GET' && path === '/api/catalogue/faculty') {
+        return json({ faculty: await listFaculty(env.WEA_DB) }, 200, allowed);
+      }
+
+      if (method === 'GET' && path === '/api/payment-methods') {
+        return json(
+          { payment_methods: await listPaymentMethods(env.WEA_DB) },
+          200,
+          allowed,
+        );
+      }
+
+      // Images are public assets; they are served with their own permissive
+      // CORS header rather than the API's origin allow-list.
+      if (method === 'GET' && path.startsWith('/api/media/')) {
+        return serveMedia(env, decodeURIComponent(path.slice('/api/media/'.length)), request);
       }
 
       /**
@@ -441,8 +510,13 @@ export default {
       }
 
       if (!actor) {
-        if (path.startsWith('/api/auth/') || path.startsWith('/api/admin/') ||
-            path === '/api/profile' || path === '/api/enrolments') {
+        if (
+          path.startsWith('/api/auth/') ||
+          path.startsWith('/api/admin/') ||
+          path.startsWith('/api/registrations') ||
+          path === '/api/profile' ||
+          path === '/api/enrolments'
+        ) {
           return fail('SESSION_EXPIRED', 401, allowed);
         }
         return fail('NOT_FOUND', 404, allowed);
@@ -499,6 +573,61 @@ export default {
             .run();
           const row = await findUserById(env, actor.id);
           return json({ profile: toProfile(row!) }, 200, allowed);
+        }
+      }
+
+      // --- Registration ----------------------------------------------------
+
+      /**
+       * What still needs asking for this applicant and programme. Everything
+       * WEA already holds comes back under `known`, so the form can confirm it
+       * instead of asking for it again.
+       */
+      if (method === 'GET' && path === '/api/registrations/context') {
+        const programmeId = url.searchParams.get('programme_id') ?? '';
+        if (!programmeId) return fail('INVALID_REQUEST', 400, allowed);
+        const programme = await env.WEA_DB.prepare(
+          'SELECT id FROM programmes WHERE (id = ?1 OR slug = ?1) AND status = ?2',
+        )
+          .bind(programmeId, 'PUBLISHED')
+          .first<{ id: string }>();
+        if (!programme) return fail('NOT_FOUND', 404, allowed);
+        return json(
+          await registrationContext(env.WEA_DB, actor, programme.id),
+          200,
+          allowed,
+        );
+      }
+
+      if (path === '/api/registrations') {
+        if (method === 'GET') {
+          return json(
+            {
+              registrations: await listRegistrations(env.WEA_DB, {
+                userId: actor.id,
+                status: url.searchParams.get('status'),
+              }),
+            },
+            200,
+            allowed,
+          );
+        }
+        if (method === 'POST') {
+          const result = await submitRegistration(
+            env.WEA_DB,
+            actor,
+            await readJson(request),
+          );
+          if (!result.ok) {
+            const status =
+              result.code === 'NOT_FOUND'
+                ? 404
+                : result.code === 'ALREADY_REGISTERED'
+                  ? 409
+                  : 400;
+            return fail(result.code!, status, allowed, result.message);
+          }
+          return json({ registration: result.registration }, 201, allowed);
         }
       }
 
@@ -559,6 +688,194 @@ export default {
       if (path.startsWith('/api/admin/')) {
         if (actor.role !== 'SUPER_ADMIN') {
           return fail('NOT_AUTHORISED', 403, allowed);
+        }
+
+        // --- Media -----------------------------------------------------------
+
+        if (method === 'POST' && path === '/api/admin/media') {
+          return uploadMedia(request, env, actor.id, allowed);
+        }
+        if (method === 'GET' && path === '/api/admin/media') {
+          return listMedia(env, allowed);
+        }
+        if (method === 'DELETE' && path.startsWith('/api/admin/media/')) {
+          return deleteMedia(
+            env,
+            decodeURIComponent(path.slice('/api/admin/media/'.length)),
+            allowed,
+          );
+        }
+
+        // --- Editable site copy ----------------------------------------------
+
+        if (path === '/api/admin/settings') {
+          if (method === 'GET') {
+            const rows = await env.WEA_DB.prepare(
+              'SELECT key, value FROM site_settings ORDER BY key',
+            ).all();
+            return json({ settings: rows.results }, 200, allowed);
+          }
+          if (method === 'PUT') {
+            const body = await readJson(request);
+            const entries = Object.entries(body);
+            if (entries.length > 0) {
+              await env.WEA_DB.batch(
+                entries.map(([key, value]) =>
+                  env.WEA_DB.prepare(
+                    `INSERT INTO site_settings (key, value, updated_at)
+                     VALUES (?1, ?2, CURRENT_TIMESTAMP)
+                     ON CONFLICT(key) DO UPDATE
+                       SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+                  ).bind(key, str(value)),
+                ),
+              );
+            }
+            await audit(env, actor.id, 'UPDATE_SETTINGS', undefined, `${entries.length} keys`);
+            return json({ ok: true }, 200, allowed);
+          }
+        }
+
+        // --- Registrations ---------------------------------------------------
+
+        if (method === 'GET' && path === '/api/admin/registrations') {
+          return json(
+            {
+              registrations: await listRegistrations(env.WEA_DB, {
+                status: url.searchParams.get('status'),
+              }),
+            },
+            200,
+            allowed,
+          );
+        }
+
+        const reviewMatch = path.match(/^\/api\/admin\/registrations\/([^/]+)$/);
+        if (method === 'PATCH' && reviewMatch) {
+          const result = await reviewRegistration(
+            env.WEA_DB,
+            actor.id,
+            reviewMatch[1],
+            await readJson(request),
+          );
+          if (!result.ok) {
+            return fail(result.code!, result.code === 'NOT_FOUND' ? 404 : 400, allowed);
+          }
+          await audit(env, actor.id, 'REVIEW_REGISTRATION', reviewMatch[1]);
+          return json({ registration: result.registration }, 200, allowed);
+        }
+
+        // --- Catalogue CRUD --------------------------------------------------
+        // Every managed entity shares this code path; see resources.ts.
+
+        const resourceMatch = path.match(
+          /^\/api\/admin\/([a-z-]+)(?:\/([^/]+))?(?:\/(reorder))?$/,
+        );
+        if (resourceMatch) {
+          const spec = resourceByName(resourceMatch[1]);
+          if (spec) {
+            const targetId = resourceMatch[2];
+            const action = resourceMatch[3];
+
+            if (method === 'POST' && targetId === 'reorder') {
+              const body = await readJson(request);
+              const ids = Array.isArray(body.ids) ? (body.ids as string[]) : [];
+              const result = await reorderResource(env.WEA_DB, spec, ids);
+              if (!result.ok) return fail(result.code!, 400, allowed);
+              await audit(env, actor.id, 'REORDER', spec.name, `${ids.length} items`);
+              return json({ ok: true }, 200, allowed);
+            }
+
+            if (method === 'GET' && !targetId) {
+              return json(
+                { items: await listResource(env.WEA_DB, spec, url.searchParams) },
+                200,
+                allowed,
+              );
+            }
+
+            if (method === 'GET' && targetId && !action) {
+              const row = await env.WEA_DB.prepare(
+                `SELECT * FROM ${spec.table} WHERE id = ?1`,
+              )
+                .bind(targetId)
+                .first();
+              if (!row) return fail('NOT_FOUND', 404, allowed);
+              return json({ item: row }, 200, allowed);
+            }
+
+            if (method === 'POST' && !targetId) {
+              const result = await createResource(
+                env.WEA_DB,
+                spec,
+                await readJson(request),
+              );
+              if (!result.ok) {
+                return fail(result.code!, 400, allowed, result.message);
+              }
+              await audit(env, actor.id, 'CREATE', spec.name, String(result.row?.id));
+              return json({ item: result.row }, 201, allowed);
+            }
+
+            if (method === 'PATCH' && targetId) {
+              const result = await updateResource(
+                env.WEA_DB,
+                spec,
+                targetId,
+                await readJson(request),
+              );
+              if (!result.ok) {
+                return fail(
+                  result.code!,
+                  result.code === 'NOT_FOUND' ? 404 : 400,
+                  allowed,
+                  result.message,
+                );
+              }
+              await audit(env, actor.id, 'UPDATE', spec.name, targetId);
+              return json({ item: result.row }, 200, allowed);
+            }
+
+            if (method === 'DELETE' && targetId) {
+              const result = await deleteResource(env.WEA_DB, spec, targetId);
+              if (!result.ok) return fail(result.code!, 404, allowed);
+              await audit(env, actor.id, 'DELETE', spec.name, targetId);
+              return json({ ok: true }, 200, allowed);
+            }
+          }
+        }
+
+        // Faculty assignment is a join table, so it sits outside the generic
+        // resource layer.
+        if (method === 'PUT' && path === '/api/admin/programme-faculty') {
+          const body = await readJson(request);
+          const programmeId = str(body.programme_id);
+          const facultyIds = Array.isArray(body.faculty_ids)
+            ? (body.faculty_ids as string[])
+            : [];
+          if (!programmeId) return fail('INVALID_REQUEST', 400, allowed);
+          await env.WEA_DB.prepare(
+            'DELETE FROM programme_faculty WHERE programme_id = ?1',
+          )
+            .bind(programmeId)
+            .run();
+          if (facultyIds.length > 0) {
+            await env.WEA_DB.batch(
+              facultyIds.map((facultyId, index) =>
+                env.WEA_DB.prepare(
+                  `INSERT OR IGNORE INTO programme_faculty
+                     (programme_id, faculty_id, role, sort_order)
+                   VALUES (?1, ?2, ?3, ?4)`,
+                ).bind(
+                  programmeId,
+                  facultyId,
+                  index === 0 ? 'Programme Director' : 'Faculty',
+                  index + 1,
+                ),
+              ),
+            );
+          }
+          await audit(env, actor.id, 'SET_PROGRAMME_FACULTY', programmeId);
+          return json({ ok: true }, 200, allowed);
         }
 
         if (method === 'GET' && path === '/api/admin/users') {

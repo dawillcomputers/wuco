@@ -164,6 +164,11 @@ class _SuperAdminConsoleState extends ConsumerState<SuperAdminConsole> {
         title: const WEABrandLockup(height: 56, onDark: true),
         actions: [
           TextButton(
+            onPressed: () => context.go('/super-admin/content'),
+            style: TextButton.styleFrom(foregroundColor: WEAColors.offWhite),
+            child: const Text('MANAGE CONTENT'),
+          ),
+          TextButton(
             onPressed: () => context.go('/profile'),
             style: TextButton.styleFrom(foregroundColor: WEAColors.offWhite),
             child: const Text('PROFILE'),

@@ -4,11 +4,15 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit",
+    "seed:generate": "node scripts/generate-catalogue-seed.mjs",
     "deploy": "wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply WEA_DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply WEA_DB --remote"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260811.1",
+    "typescript": "^7.0.2",
     "wrangler": "^4.119.0"
   }
 }
