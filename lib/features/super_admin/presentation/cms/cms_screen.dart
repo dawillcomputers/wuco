@@ -7,6 +7,9 @@ import '../../../../app/theme/app_dimensions.dart';
 import '../../../../core/services/app_environment.dart';
 import '../../../../shared/components/wea_brand.dart';
 import '../../../../shared/components/wea_components.dart';
+import 'cms_analytics_view.dart';
+import 'cms_enquiries_view.dart';
+import 'cms_event_registrations_view.dart';
 import 'cms_registrations_view.dart';
 import 'cms_resource_view.dart';
 import 'cms_schema.dart';
@@ -28,7 +31,20 @@ class _CmsScreenState extends ConsumerState<CmsScreen> {
   String _section = cmsResources.first.name;
 
   static const _registrations = '__registrations__';
+  static const _eventRegistrations = '__event_registrations__';
+  static const _analytics = '__analytics__';
+  static const _enquiries = '__enquiries__';
   static const _settings = '__settings__';
+
+  /// Resources shown under each heading. Anything not listed here falls under
+  /// Catalogue, so adding a resource still appears without touching this.
+  static const _eventResources = [
+    'events',
+    'event-registration-fields',
+    'event-materials',
+    'event-sessions',
+  ];
+  static const _promotionResources = ['share-links'];
 
   @override
   Widget build(BuildContext context) {
@@ -102,6 +118,9 @@ class _CmsScreenState extends ConsumerState<CmsScreen> {
 
   Widget _body() => switch (_section) {
     _registrations => const CmsRegistrationsView(),
+    _eventRegistrations => const CmsEventRegistrationsView(),
+    _analytics => const CmsAnalyticsView(),
+    _enquiries => const CmsEnquiriesView(),
     _settings => const CmsSettingsView(),
     final name => CmsResourceView(
       key: ValueKey(name),
@@ -109,15 +128,37 @@ class _CmsScreenState extends ConsumerState<CmsScreen> {
     ),
   };
 
+  Iterable<CmsResource> _group(List<String> names) =>
+      cmsResources.where((resource) => names.contains(resource.name));
+
   Widget _nav() => ListView(
     padding: const EdgeInsets.symmetric(vertical: WEAInsets.md),
     children: [
       _navHeading('Catalogue'),
       for (final resource in cmsResources)
+        if (!_eventResources.contains(resource.name) &&
+            !_promotionResources.contains(resource.name))
+          _navTile(resource.name, resource.plural, resource.icon),
+      const Divider(),
+      _navHeading('Events'),
+      for (final resource in _group(_eventResources))
         _navTile(resource.name, resource.plural, resource.icon),
+      _navTile(
+        _eventRegistrations,
+        'Event registrations',
+        Icons.groups_outlined,
+      ),
+      const Divider(),
+      _navHeading('Promotion'),
+      for (final resource in _group(_promotionResources))
+        _navTile(resource.name, resource.plural, resource.icon),
+      _navTile(_analytics, 'Site analytics', Icons.insights_outlined),
       const Divider(),
       _navHeading('Applications'),
       _navTile(_registrations, 'Registrations', Icons.how_to_reg_outlined),
+      const Divider(),
+      _navHeading('Enquiries'),
+      _navTile(_enquiries, 'Contact messages', Icons.forum_outlined),
       const Divider(),
       _navHeading('Site'),
       _navTile(_settings, 'Website copy', Icons.tune_outlined),

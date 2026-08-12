@@ -41,6 +41,9 @@ dependencies:
   http: ^1.2.2
   responsive_framework: ^1.5.1
   shared_preferences: ^2.3.3
+  # Opens the payment processor's checkout and the social share targets. No
+  # payment provider is compiled in; the URL is whatever the API returns.
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:

@@ -3,17 +3,26 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../authentication/data/session_store.dart';
+import '../../contact/data/contact_repository.dart';
+import '../../contact/domain/contact_models.dart';
 import '../domain/catalogue_models.dart';
 import '../domain/registration_models.dart';
 import 'catalogue_repository.dart';
 
-/// Talks to the Worker catalogue API.
+/// Talks to the Worker API.
+///
+/// One client for every non-authentication endpoint, exposed through several
+/// narrow interfaces so each feature depends only on what it uses.
 ///
 /// The Worker decides what is published and who may edit it; nothing here is a
 /// security control. Draft content is never sent to this client, so it cannot
 /// be revealed by tampering with the app.
 class ApiCatalogueRepository
-    implements CatalogueRepository, CatalogueAdminRepository {
+    implements
+        CatalogueRepository,
+        CatalogueAdminRepository,
+        ContactRepository,
+        ContactAdminRepository {
   ApiCatalogueRepository({
     required String baseUrl,
     required SessionStore sessionStore,
@@ -200,6 +209,56 @@ class ApiCatalogueRepository
     final response = await _send('GET', '/api/registrations');
     return _rows(response['registrations']).map(RegistrationRecord.fromMap).toList();
   }
+
+  // --- Contact --------------------------------------------------------------
+
+  @override
+  Future<String> sendEnquiry(EnquiryDraft draft) async {
+    final response = await _send('POST', '/api/contact', body: draft.toMap());
+    return '${response['reference'] ?? ''}';
+  }
+
+  @override
+  Future<List<Enquiry>> myEnquiries() async {
+    final response = await _send('GET', '/api/contact/messages');
+    return _rows(response['messages']).map(Enquiry.fromMap).toList();
+  }
+
+  @override
+  Future<void> followUp({required String enquiryId, required String body}) =>
+      _send(
+        'POST',
+        '/api/contact/messages/$enquiryId/replies',
+        body: {'body': body},
+      );
+
+  @override
+  Future<List<Enquiry>> enquiries({EnquiryStatus? status}) async {
+    final response = await _send(
+      'GET',
+      '/api/admin/contact-messages',
+      query: {'status': ?status?.wireName},
+    );
+    return _rows(response['messages']).map(Enquiry.fromMap).toList();
+  }
+
+  @override
+  Future<void> reply({required String enquiryId, required String body}) =>
+      _send(
+        'POST',
+        '/api/admin/contact-messages/$enquiryId/replies',
+        body: {'body': body},
+      );
+
+  @override
+  Future<void> setStatus({
+    required String enquiryId,
+    required EnquiryStatus status,
+  }) => _send(
+    'PATCH',
+    '/api/admin/contact-messages/$enquiryId',
+    body: {'status': status.wireName},
+  );
 
   // --- Administration -------------------------------------------------------
 

@@ -32,6 +32,8 @@ Admin has marked `PUBLISHED`.
 | --- | --- | --- |
 | Schema | `cloudflare/migrations/0003_catalogue.sql` | Tables for the whole catalogue |
 | Seed | `cloudflare/migrations/0004_seed_catalogue.sql` | The initial catalogue below |
+| Contact | `cloudflare/migrations/0005_contact.sql`, `src/contact.ts`, `lib/features/contact/` | Enquiries and replies |
+| Events | `cloudflare/migrations/0006_events.sql`, `src/events.ts`, `lib/features/events/` | Paid events — see `EVENTS.md` |
 | Seed source | `cloudflare/scripts/catalogue-data.mjs` | Structured data the seed is generated from |
 | API | `cloudflare/src/catalogue.ts`, `resources.ts`, `media.ts`, `registrations.ts` | Public reads, admin writes, uploads |
 | Client models | `lib/features/catalogue/domain/` | Typed models |
@@ -209,13 +211,48 @@ deployment.
 
 ---
 
-## 10. ADMINISTRATION
+## 10. CONTACT CHANNEL
+
+Enquiries sent from `/contact` go to the academy office through the API, not to
+a mailbox the application cannot see.
+
+- **Anyone may send one.** A signed-in sender is identified by their session, so
+  the form asks only for the message; their enquiry is linked to their account.
+- **The office replies** from `/super-admin/content` → Contact messages, with
+  status tracking (New · Read · Replied · Closed).
+- **A reply reaches the sender two ways.** If they have an account it appears on
+  the contact page under "Your enquiries", where they can also follow up. If not,
+  the office answers by email against the reference.
+- References are issued as `WEA-ENQ-00019` from a monotonic sequence.
+- A sender may only ever read or follow up on **their own** enquiries; the check
+  is in the API, not the interface.
+
+The published address is `contact_email` in site settings — currently
+`enquirie@gmail.com` — and is editable under Website copy.
+
+---
+
+## 11. ADMINISTRATION
 
 `/super-admin/content` — Super Admin only, enforced by the API on every call.
 
 Manage: programme areas · programme types · programmes · modules · lessons ·
 faculty · live sessions · registration questions · payment methods ·
-registrations · website copy.
+registrations · contact messages · website copy.
 
 Each content type has publish / unpublish / archive, ordering, search, filtering
 by parent, and image upload where relevant.
+
+---
+
+## 12. EVENTS
+
+Events are a peer of the catalogue, not part of it: a summit is not a
+programme, and its registrant is not an applicant. They share the payment
+method configuration above and nothing else.
+
+`/super-admin/content` → Events manages events, their questions, materials and
+live sessions, and shows every registration including the ones that were never
+finished. Promotion manages campaign links and site analytics.
+
+The whole feature is documented in **`EVENTS.md`**.

@@ -314,11 +314,15 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (tone, icon, label) = switch (status) {
-      'PUBLISHED' => (WEAColors.success, Icons.public, 'Published'),
-      'ARCHIVED' => (WEAColors.mutedText, Icons.inventory_2_outlined, 'Archived'),
-      _ => (WEAColors.warning, Icons.edit_note, 'Draft'),
+    final (tone, icon) = switch (status) {
+      'PUBLISHED' => (WEAColors.success, Icons.public),
+      'ARCHIVED' => (WEAColors.mutedText, Icons.inventory_2_outlined),
+      'REGISTRATION_CLOSED' => (WEAColors.warning, Icons.lock_clock),
+      'COMPLETED' => (WEAColors.mutedText, Icons.task_alt),
+      'CANCELLED' => (WEAColors.error, Icons.cancel_outlined),
+      _ => (WEAColors.warning, Icons.edit_note),
     };
+    final label = statusLabel(status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(

@@ -32,6 +32,25 @@
   <title>WUCO Executive Academy</title>
   <meta name="theme-color" content="#0A1E3D">
   <link rel="manifest" href="manifest.json">
+
+  <!--
+    Default social preview card.
+
+    These cover a link to the site itself. A link to a particular event or
+    programme should be shared through the API's /share/ endpoint instead,
+    which serves that item's own title, description and artwork — a crawler
+    fetching this page finds only the application shell, because the pages are
+    painted in the browser. The Super Admin's "Share" controls already build
+    the right URL.
+  -->
+  <meta property="og:site_name" content="WUCO Executive Academy">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="WUCO Executive Academy">
+  <meta property="og:description" content="Africa's executive academy for leadership, trade, investment and professional development.">
+  <meta property="og:image" content="icons/Icon-512.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="WUCO Executive Academy">
+  <meta name="twitter:description" content="Africa's executive academy for leadership, trade, investment and professional development.">
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

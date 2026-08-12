@@ -141,52 +141,9 @@ class FacultyScreen extends StatelessWidget {
   );
 }
 
-class EventsScreen extends StatelessWidget {
-  const EventsScreen({super.key});
-  @override
-  Widget build(BuildContext context) => WEAPublicPage(
-    child: WEAContainer(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: WEAInsets.section),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const WEASectionHeading(
-              eyebrow: 'EVENTS',
-              title: 'Where executive conversations continue.',
-              description:
-                  'Forthcoming opportunities are shown as placeholders until WEA publishes its official events calendar.',
-            ),
-            const SizedBox(height: 36),
-            ResponsiveBuilder(
-              builder: (context, b) {
-                final c = b == WEABreakpoint.mobile ? 1 : 3;
-                return GridView.count(
-                  crossAxisCount: c,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  childAspectRatio: .37,
-                  crossAxisSpacing: 20,
-                  mainAxisSpacing: 20,
-                  children: [
-                    for (final event in PublicContentService.events)
-                      WEAEventPreview(event: event),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 48),
-            const _EditorialBlock(
-              title: 'Past events',
-              body:
-                  'Past event archives will be published here as WEA’s event programme develops.',
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
+// The events calendar used to live here as a placeholder. It is now served
+// from the API by lib/features/events/, so published events appear without a
+// release.
 
 class ResearchScreen extends StatelessWidget {
   const ResearchScreen({super.key});
@@ -280,45 +237,6 @@ class AdmissionsScreen extends StatelessWidget {
     ],
     ctaLabel: 'START APPLICATION',
     ctaPath: '/apply',
-  );
-}
-
-class ContactScreen extends StatelessWidget {
-  const ContactScreen({super.key});
-  @override
-  Widget build(BuildContext context) => WEAPublicPage(
-    child: WEAContainer(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: WEAInsets.section),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const WEASectionHeading(
-              eyebrow: 'CONTACT',
-              title: 'Speak with WEA.',
-              description:
-                  'Send an enquiry and the academy team will respond when official contact operations are live.',
-            ),
-            const SizedBox(height: 36),
-            const _PublicForm(
-              title: 'General enquiry',
-              button: 'SEND ENQUIRY',
-              fields: ['Name', 'Email address', 'Organisation', 'Message'],
-            ),
-            const SizedBox(height: 34),
-            const _EditorialBlock(
-              title: 'Admissions contact',
-              body:
-                  'Official admissions contact details will be published by WEA.',
-            ),
-            const _EditorialBlock(
-              title: 'Office information',
-              body: 'Official office information will be published by WEA.',
-            ),
-          ],
-        ),
-      ),
-    ),
   );
 }
 

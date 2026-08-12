@@ -7,6 +7,12 @@
   "observability": {
     "enabled": true
   },
+  // Hourly housekeeping: half-finished event registrations become named leads
+  // rather than sitting in the pending queue, and analytics rows past the
+  // retention window are removed. Nothing is deleted that the academy needs.
+  "triggers": {
+    "crons": ["17 * * * *"]
+  },
   "vars": {
     "ALLOWED_ORIGIN": "https://wuco.pages.dev",
     // Account created by the one-time /api/auth/bootstrap call.

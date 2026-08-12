@@ -84,6 +84,16 @@ const _statusField = CmsField(
   help: 'Only published content appears on the public site.',
 );
 
+/// A status as an operator should read it.
+String statusLabel(String status) => switch (status) {
+  'PUBLISHED' => 'Published',
+  'ARCHIVED' => 'Archived',
+  'REGISTRATION_CLOSED' => 'Registration closed',
+  'COMPLETED' => 'Completed',
+  'CANCELLED' => 'Cancelled',
+  _ => 'Draft',
+};
+
 /// Every content type a Super Admin can manage.
 const cmsResources = <CmsResource>[
   CmsResource(
@@ -463,6 +473,375 @@ const cmsResources = <CmsResource>[
       CmsField(column: 'gateway_checkout_url', label: 'Gateway checkout URL'),
       CmsField(column: 'gateway_public_key', label: 'Gateway public key'),
       CmsField(column: 'is_active', label: 'Active', kind: CmsFieldKind.toggle),
+    ],
+  ),
+  CmsResource(
+    name: 'events',
+    singular: 'Event',
+    plural: 'Events',
+    icon: Icons.campaign_outlined,
+    subtitleColumn: 'summary',
+    description:
+        'Conferences, summits, masterclasses and forums. Set the fee here and '
+        'the registration page charges it — the amount is never editable by a '
+        'registrant.',
+    fields: [
+      CmsField(column: 'title', label: 'Title', required: true),
+      CmsField(column: 'subtitle', label: 'Subtitle'),
+      CmsField(
+        column: 'event_type',
+        label: 'Event type',
+        kind: CmsFieldKind.select,
+        options: [
+          'CONFERENCE',
+          'SUMMIT',
+          'MASTERCLASS',
+          'FORUM',
+          'WORKSHOP',
+          'WEBINAR',
+          'NETWORKING',
+          'OTHER',
+        ],
+      ),
+      CmsField(
+        column: 'summary',
+        label: 'Short description',
+        kind: CmsFieldKind.multiline,
+        help: 'Shown on the events calendar and in social preview cards.',
+      ),
+      CmsField(
+        column: 'description',
+        label: 'Full description',
+        kind: CmsFieldKind.richText,
+      ),
+      CmsField(
+        column: 'why_attend',
+        label: 'Why attend',
+        kind: CmsFieldKind.multiline,
+      ),
+      CmsField(
+        column: 'who_should_attend',
+        label: 'Who should attend',
+        kind: CmsFieldKind.multiline,
+      ),
+      CmsField(
+        column: 'agenda',
+        label: 'Agenda',
+        kind: CmsFieldKind.stringList,
+        help: 'One line per item, e.g. "09:00 Registration and coffee".',
+      ),
+      CmsField(
+        column: 'image_key',
+        label: 'Banner image',
+        kind: CmsFieldKind.image,
+      ),
+      CmsField(
+        column: 'starts_at',
+        label: 'Starts',
+        kind: CmsFieldKind.date,
+        help: 'ISO date and time, e.g. 2026-09-25T09:00:00',
+      ),
+      CmsField(column: 'ends_at', label: 'Ends', kind: CmsFieldKind.date),
+      CmsField(column: 'timezone', label: 'Timezone'),
+      CmsField(column: 'venue', label: 'Venue'),
+      CmsField(
+        column: 'format',
+        label: 'Format',
+        kind: CmsFieldKind.select,
+        options: ['ONLINE', 'PHYSICAL', 'HYBRID'],
+      ),
+      CmsField(
+        column: 'registration_opens_at',
+        label: 'Registration opens',
+        kind: CmsFieldKind.date,
+      ),
+      CmsField(
+        column: 'registration_closes_at',
+        label: 'Registration closes',
+        kind: CmsFieldKind.date,
+      ),
+      CmsField(
+        column: 'capacity',
+        label: 'Maximum participants',
+        kind: CmsFieldKind.number,
+        help: 'Leave empty for no limit.',
+      ),
+      CmsField(
+        column: 'fee_amount',
+        label: 'Registration fee',
+        kind: CmsFieldKind.currency,
+        help: 'Zero makes the event free to attend.',
+      ),
+      CmsField(column: 'fee_currency', label: 'Currency'),
+      CmsField(
+        column: 'payment_method_id',
+        label: 'Payment method',
+        kind: CmsFieldKind.reference,
+        referenceResource: 'payment-methods',
+        help:
+            'Which configured method collects the fee. A gateway takes payment '
+            'online; anything else shows your instructions instead.',
+      ),
+      CmsField(
+        column: 'payment_instructions',
+        label: 'Payment instructions',
+        kind: CmsFieldKind.multiline,
+      ),
+      CmsField(column: 'contact_email', label: 'Event contact email'),
+      CmsField(column: 'contact_phone', label: 'Event contact phone'),
+      CmsField(
+        column: 'terms',
+        label: 'Terms and conditions',
+        kind: CmsFieldKind.richText,
+      ),
+      CmsField(
+        column: 'success_message',
+        label: 'Registration success message',
+        kind: CmsFieldKind.multiline,
+      ),
+      CmsField(
+        column: 'allow_guest_registration',
+        label: 'Allow registration without a WEA account',
+        kind: CmsFieldKind.toggle,
+        help: 'Recommended. Requiring an account first loses registrations.',
+      ),
+      CmsField(
+        column: 'featured',
+        label: 'Featured',
+        kind: CmsFieldKind.toggle,
+      ),
+      CmsField(
+        column: 'status',
+        label: 'Status',
+        kind: CmsFieldKind.status,
+        options: [
+          'DRAFT',
+          'PUBLISHED',
+          'REGISTRATION_CLOSED',
+          'COMPLETED',
+          'CANCELLED',
+          'ARCHIVED',
+        ],
+        help:
+            'Published events accept registrations. Registration closed keeps '
+            'the page up but takes no more.',
+      ),
+    ],
+  ),
+  CmsResource(
+    name: 'event-registration-fields',
+    singular: 'Event question',
+    plural: 'Event questions',
+    icon: Icons.quiz_outlined,
+    hasStatus: false,
+    titleColumn: 'label',
+    subtitleColumn: 'field_key',
+    filterBy: ('event_id', 'events'),
+    description:
+        'Extra questions on an event registration form. Leave the event empty '
+        'to ask it on every event. Keep the list short — a long form is the '
+        'commonest reason a registration is abandoned.',
+    fields: [
+      CmsField(column: 'label', label: 'Question', required: true),
+      CmsField(
+        column: 'field_key',
+        label: 'Key',
+        required: true,
+        help: 'Stable identifier, e.g. dietary_requirements. Do not change it later.',
+      ),
+      CmsField(
+        column: 'event_id',
+        label: 'Event',
+        kind: CmsFieldKind.reference,
+        referenceResource: 'events',
+        help: 'Leave empty to ask this on every event.',
+      ),
+      CmsField(
+        column: 'field_type',
+        label: 'Answer type',
+        kind: CmsFieldKind.select,
+        options: ['TEXT', 'TEXTAREA', 'SELECT', 'CHECKBOX', 'DATE', 'NUMBER'],
+      ),
+      CmsField(
+        column: 'options',
+        label: 'Choices',
+        kind: CmsFieldKind.stringList,
+        help: 'One per line. Used when the answer type is SELECT.',
+      ),
+      CmsField(column: 'help_text', label: 'Help text'),
+      CmsField(column: 'required', label: 'Required', kind: CmsFieldKind.toggle),
+      CmsField(
+        column: 'ask_early',
+        label: 'Ask on the first step',
+        kind: CmsFieldKind.toggle,
+        help: 'Off by default, so the first screen stays short.',
+      ),
+    ],
+  ),
+  CmsResource(
+    name: 'event-materials',
+    singular: 'Event material',
+    plural: 'Event materials',
+    icon: Icons.folder_open_outlined,
+    filterBy: ('event_id', 'events'),
+    subtitleColumn: 'description',
+    description:
+        'Agendas, briefings and reading packs. Participant material is released '
+        'only to registrations that have been paid for.',
+    fields: [
+      CmsField(
+        column: 'event_id',
+        label: 'Event',
+        kind: CmsFieldKind.reference,
+        referenceResource: 'events',
+        required: true,
+      ),
+      CmsField(column: 'title', label: 'Title', required: true),
+      CmsField(
+        column: 'description',
+        label: 'Description',
+        kind: CmsFieldKind.multiline,
+      ),
+      CmsField(
+        column: 'material_type',
+        label: 'Type',
+        kind: CmsFieldKind.select,
+        options: [
+          'DOCUMENT',
+          'PRESENTATION',
+          'BROCHURE',
+          'AGENDA',
+          'READING',
+          'RECORDING',
+          'LINK',
+        ],
+      ),
+      CmsField(column: 'media_key', label: 'File', kind: CmsFieldKind.image),
+      CmsField(column: 'resource_url', label: 'External link'),
+      CmsField(
+        column: 'visibility',
+        label: 'Who can see it',
+        kind: CmsFieldKind.select,
+        options: ['PARTICIPANT', 'PUBLIC'],
+      ),
+      _statusField,
+    ],
+  ),
+  CmsResource(
+    name: 'event-sessions',
+    singular: 'Event session',
+    plural: 'Event sessions',
+    icon: Icons.videocam_outlined,
+    filterBy: ('event_id', 'events'),
+    subtitleColumn: 'starts_at',
+    description:
+        'Live sittings of an event. Nobody is admitted until you switch the '
+        'session live, whatever the clock says.',
+    fields: [
+      CmsField(
+        column: 'event_id',
+        label: 'Event',
+        kind: CmsFieldKind.reference,
+        referenceResource: 'events',
+        required: true,
+      ),
+      CmsField(column: 'title', label: 'Title', required: true),
+      CmsField(
+        column: 'session_type',
+        label: 'Type',
+        kind: CmsFieldKind.select,
+        options: ['LIVE', 'KEYNOTE', 'PANEL', 'WORKSHOP', 'BRIEFING'],
+      ),
+      CmsField(column: 'starts_at', label: 'Starts', kind: CmsFieldKind.date),
+      CmsField(column: 'ends_at', label: 'Ends', kind: CmsFieldKind.date),
+      CmsField(column: 'timezone', label: 'Timezone'),
+      CmsField(
+        column: 'room_name',
+        label: 'Room name',
+        help: 'Identifier for the live classroom. Never sent to the public.',
+      ),
+      CmsField(
+        column: 'join_url',
+        label: 'Join link',
+        help:
+            'Issued to paid participants only, one request at a time, once the '
+            'session is live.',
+      ),
+      CmsField(column: 'recording_url', label: 'Recording link'),
+      CmsField(column: 'speaker', label: 'Speaker'),
+      CmsField(column: 'notes', label: 'Notes', kind: CmsFieldKind.multiline),
+      CmsField(
+        column: 'is_live',
+        label: 'Session is live',
+        kind: CmsFieldKind.toggle,
+        help: 'Switch on to admit participants; switch off to close the room.',
+      ),
+      _statusField,
+    ],
+  ),
+  CmsResource(
+    name: 'share-links',
+    singular: 'Campaign link',
+    plural: 'Campaign links',
+    icon: Icons.share_outlined,
+    titleColumn: 'label',
+    subtitleColumn: 'target_path',
+    description:
+        'Short links for promoting a page on LinkedIn, Facebook, YouTube, '
+        'Google or anywhere else. Each one is counted separately, so you can '
+        'see which channel actually produced registrations.',
+    fields: [
+      CmsField(
+        column: 'label',
+        label: 'Name',
+        help: 'For your own reference, e.g. "Summit — LinkedIn launch".',
+      ),
+      CmsField(
+        column: 'target_path',
+        label: 'Page',
+        required: true,
+        help: 'Path on the public site, e.g. /events/africa-trade-summit',
+      ),
+      CmsField(
+        column: 'target_type',
+        label: 'Kind',
+        kind: CmsFieldKind.select,
+        options: ['EVENT', 'PROGRAMME', 'PAGE'],
+      ),
+      CmsField(
+        column: 'channel',
+        label: 'Channel',
+        kind: CmsFieldKind.select,
+        options: [
+          'linkedin',
+          'facebook',
+          'youtube',
+          'google',
+          'x',
+          'whatsapp',
+          'instagram',
+          'email',
+          'newsletter',
+          'partner',
+        ],
+      ),
+      CmsField(
+        column: 'medium',
+        label: 'Medium',
+        kind: CmsFieldKind.select,
+        options: ['social', 'cpc', 'email', 'referral', 'video', 'display'],
+      ),
+      CmsField(
+        column: 'campaign',
+        label: 'Campaign',
+        help: 'Groups links that belong to one push, e.g. summit-2026.',
+      ),
+      CmsField(
+        column: 'code',
+        label: 'Short code',
+        help: 'Left empty, one is generated for you.',
+      ),
+      _statusField,
     ],
   ),
 ];

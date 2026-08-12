@@ -37,20 +37,23 @@ class CmsFieldEditor extends ConsumerWidget {
         );
 
       case CmsFieldKind.status:
+        // Most content is draft/published/archived, but some entities have a
+        // longer life — an event closes registration and then completes — so
+        // the descriptor may name its own statuses.
+        final statuses = field.options.isEmpty
+            ? const ['DRAFT', 'PUBLISHED', 'ARCHIVED']
+            : field.options;
         final current = '${value ?? 'DRAFT'}';
         return DropdownButtonFormField<String>(
-          initialValue: const ['DRAFT', 'PUBLISHED', 'ARCHIVED'].contains(current)
-              ? current
-              : 'DRAFT',
+          initialValue: statuses.contains(current) ? current : statuses.first,
           isExpanded: true,
           decoration: InputDecoration(
             labelText: field.label,
             helperText: field.help.isEmpty ? null : field.help,
           ),
-          items: const [
-            DropdownMenuItem(value: 'DRAFT', child: Text('Draft')),
-            DropdownMenuItem(value: 'PUBLISHED', child: Text('Published')),
-            DropdownMenuItem(value: 'ARCHIVED', child: Text('Archived')),
+          items: [
+            for (final status in statuses)
+              DropdownMenuItem(value: status, child: Text(statusLabel(status))),
           ],
           onChanged: onChanged,
         );

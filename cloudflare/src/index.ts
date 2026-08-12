@@ -28,8 +28,45 @@ import {
   listSettings,
   listTypes,
 } from './catalogue';
-import { corsHeaders, fail, json, readJson, str } from './http';
+import {
+  listEnquiries,
+  listMyEnquiries,
+  replyToEnquiry,
+  setEnquiryStatus,
+  submitEnquiry,
+} from './contact';
+import {
+  eventFunnel,
+  followShareLink,
+  pruneAnalytics,
+  recordFunnelEvent,
+  recordPageView,
+  shareLinkPerformance,
+  siteAnalytics,
+} from './analytics';
+import {
+  beginEventPayment,
+  eventOverview,
+  eventRegistrationContext,
+  exportEventRegistrations,
+  findOwnedRegistration,
+  getEvent,
+  joinEventSession,
+  latestPayment,
+  listEventRegistrations,
+  listEvents,
+  myEventRegistrations,
+  participantDashboard,
+  saveEventRegistration,
+  setEventRegistrationStatus,
+  settleEventPayment,
+  sweepAbandonedRegistrations,
+} from './events';
+import { corsHeaders, fail, json, num, readJson, str } from './http';
 import { deleteMedia, listMedia, serveMedia, uploadMedia } from './media';
+import { readWebhook } from './payments';
+import { shareCard } from './share';
+import { availableProviders, signInWithProvider } from './social';
 import {
   createResource,
   deleteResource,
@@ -62,6 +99,29 @@ export interface Env {
    * token for any address and read it straight back.
    */
   EXPOSE_AUTH_TOKENS?: string;
+
+  /** Public site origin, used to build share links and payment return URLs. */
+  PUBLIC_SITE_URL?: string;
+
+  // Payment processor credentials. Secrets, set with `wrangler secret put`.
+  // A processor with no key here is never offered to a payer, so an
+  // unconfigured deployment falls back to the academy's own instructions
+  // rather than sending anybody to a checkout that cannot work.
+  PAYSTACK_SECRET_KEY?: string;
+  FLUTTERWAVE_SECRET_KEY?: string;
+  FLUTTERWAVE_WEBHOOK_HASH?: string;
+
+  // OAuth client ids for social sign-in. Not secrets — they are public by
+  // design — but a provider without one is not offered.
+  GOOGLE_CLIENT_ID?: string;
+  APPLE_CLIENT_ID?: string;
+
+  /**
+   * Salt for the rotating visitor digest used by analytics. Set it per
+   * deployment; the digest is the only thing standing between "count visits"
+   * and "identify people", so it must not be predictable.
+   */
+  ANALYTICS_SALT?: string;
 }
 
 interface UserRow {
@@ -220,6 +280,34 @@ async function setPassword(env: Env, userId: string, password: string) {
 const devToken = (env: Env, token?: string) =>
   env.EXPOSE_AUTH_TOKENS === 'true' ? (token ?? null) : null;
 
+/** Processor credentials, gathered in one place so nothing else reads them. */
+const paymentSecrets = (env: Env) => ({
+  PAYSTACK_SECRET_KEY: env.PAYSTACK_SECRET_KEY,
+  FLUTTERWAVE_SECRET_KEY: env.FLUTTERWAVE_SECRET_KEY,
+  FLUTTERWAVE_WEBHOOK_HASH: env.FLUTTERWAVE_WEBHOOK_HASH,
+});
+
+/**
+ * Where the public site lives.
+ *
+ * Editable in the CMS so the academy can move the site without a deploy,
+ * falling back to configuration and then to the allowed origin.
+ */
+async function publicSiteUrl(env: Env): Promise<string> {
+  const row = await env.WEA_DB.prepare(
+    "SELECT value FROM site_settings WHERE key = 'public_site_url'",
+  ).first<{ value: string }>();
+  return str(row?.value) || str(env.PUBLIC_SITE_URL) || env.ALLOWED_ORIGIN;
+}
+
+/**
+ * A guest proves a registration is theirs with the token issued when they
+ * created it. Sent as a header so it never lands in a server log or a browser
+ * history the way a query parameter would.
+ */
+const resumeTokenOf = (request: Request) =>
+  request.headers.get('X-Registration-Token') ?? undefined;
+
 export default {
   async fetch(request, env): Promise<Response> {
     const origin = request.headers.get('Origin');
@@ -306,6 +394,128 @@ export default {
       // CORS header rather than the API's origin allow-list.
       if (method === 'GET' && path.startsWith('/api/media/')) {
         return serveMedia(env, decodeURIComponent(path.slice('/api/media/'.length)), request);
+      }
+
+      // --- Public events ----------------------------------------------------
+
+      if (method === 'GET' && path === '/api/events') {
+        return json(
+          { events: await listEvents(env.WEA_DB, url.searchParams) },
+          200,
+          allowed,
+        );
+      }
+
+      const eventMatch = path.match(/^\/api\/events\/([^/]+)$/);
+      if (method === 'GET' && eventMatch) {
+        const result = await getEvent(env.WEA_DB, decodeURIComponent(eventMatch[1]));
+        if (!result) return fail('NOT_FOUND', 404, allowed);
+        return json(result, 200, allowed);
+      }
+
+      // --- Sharing and analytics --------------------------------------------
+      //
+      // These sit outside /api because they are opened by crawlers and by
+      // people following a link, not by the application.
+
+      const shareMatch = path.match(/^\/share\/([a-z]+)\/([^/]+)$/);
+      if (method === 'GET' && shareMatch) {
+        return shareCard(
+          env.WEA_DB,
+          shareMatch[1],
+          decodeURIComponent(shareMatch[2]),
+          await publicSiteUrl(env),
+          url.origin,
+          url.searchParams,
+        );
+      }
+
+      // Campaign short link: count the click, then hand the visitor on with
+      // the campaign parameters attached.
+      const followMatch = path.match(/^\/s\/([A-Za-z0-9_-]{3,40})$/);
+      if (method === 'GET' && followMatch) {
+        const target = await followShareLink(
+          env.WEA_DB,
+          followMatch[1],
+          await publicSiteUrl(env),
+        );
+        if (!target) return fail('NOT_FOUND', 404, allowed);
+        return Response.redirect(target, 302);
+      }
+
+      if (method === 'POST' && path === '/api/analytics/page-view') {
+        await recordPageView(
+          { db: env.WEA_DB, request, salt: str(env.ANALYTICS_SALT) || 'wea-analytics' },
+          await readJson(request),
+        );
+        return json({ ok: true }, 202, allowed);
+      }
+
+      if (method === 'POST' && path === '/api/analytics/event') {
+        await recordFunnelEvent(
+          { db: env.WEA_DB, request, salt: str(env.ANALYTICS_SALT) || 'wea-analytics' },
+          await readJson(request),
+        );
+        return json({ ok: true }, 202, allowed);
+      }
+
+      // --- Payment webhooks -------------------------------------------------
+
+      /**
+       * The processor telling us something happened.
+       *
+       * The signature is checked, and then the *only* thing taken from the
+       * body is which transaction it concerns: settlement re-verifies against
+       * the processor's own API. A forged webhook therefore cannot mark
+       * anything paid, and a genuine one that arrives before the payer gets
+       * back to the site still settles the registration.
+       */
+      const webhookMatch = path.match(/^\/api\/payments\/webhook\/([a-z]+)$/);
+      if (method === 'POST' && webhookMatch) {
+        const rawBody = await request.text();
+        const notice = await readWebhook(
+          webhookMatch[1],
+          request,
+          rawBody,
+          paymentSecrets(env),
+        );
+        if (!notice.ok) return fail('NOT_AUTHORISED', 401, allowed);
+        if (notice.reference !== '') {
+          await settleEventPayment(env.WEA_DB, notice.reference, paymentSecrets(env));
+        }
+        return json({ ok: true }, 200, allowed);
+      }
+
+      // --- Social sign-in ---------------------------------------------------
+
+      if (method === 'GET' && path === '/api/auth/providers') {
+        return json({ providers: availableProviders(env) }, 200, allowed);
+      }
+
+      if (method === 'POST' && path === '/api/auth/social') {
+        const body = await readJson(request);
+        const result = await signInWithProvider(
+          env.WEA_DB,
+          env,
+          str(body.provider),
+          str(body.id_token),
+        );
+        if (!result.ok || !result.userId) {
+          return fail(
+            result.code ?? 'INVALID_CREDENTIALS',
+            result.code === 'PROVIDER_NOT_CONFIGURED' ? 501 : 401,
+            allowed,
+          );
+        }
+        const row = await findUserById(env, result.userId);
+        if (!row) return fail('INVALID_CREDENTIALS', 401, allowed);
+        if (row.status !== 'ACTIVE') return fail(`ACCOUNT_${row.status}`, 403, allowed);
+        const session = await createSession(env, row.id);
+        return json(
+          { profile: toProfile(row), session, created: result.created === true },
+          result.created ? 201 : 200,
+          allowed,
+        );
       }
 
       /**
@@ -499,6 +709,172 @@ export default {
 
       const actor = await authenticate(request, env);
 
+      /**
+       * Enquiries are open to the public, so this sits before the sign-in
+       * gate. A signed-in sender is linked to the message so replies can reach
+       * them in the application; an anonymous one is answered by email.
+       */
+      if (method === 'POST' && path === '/api/contact') {
+        const result = await submitEnquiry(
+          env.WEA_DB,
+          await readJson(request),
+          actor,
+        );
+        if (!result.ok) {
+          return fail(result.code!, 400, allowed, result.message);
+        }
+        return json(result.data, 201, allowed);
+      }
+
+      // --- Event registration ------------------------------------------------
+      //
+      // Open to visitors as well as to accounts: an event may accept guests,
+      // and requiring a password before somebody can tell us their name is
+      // exactly what loses the registration. Ownership of a guest registration
+      // is proved with the token issued when it was created.
+
+      const eventContextMatch = path.match(/^\/api\/events\/([^/]+)\/registration-context$/);
+      if (method === 'GET' && eventContextMatch) {
+        const context = await eventRegistrationContext(
+          env.WEA_DB,
+          decodeURIComponent(eventContextMatch[1]),
+          actor,
+        );
+        if (!context) return fail('NOT_FOUND', 404, allowed);
+        return json(context, 200, allowed);
+      }
+
+      const eventRegisterMatch = path.match(/^\/api\/events\/([^/]+)\/registrations$/);
+      if (method === 'POST' && eventRegisterMatch) {
+        const result = await saveEventRegistration(
+          env.WEA_DB,
+          decodeURIComponent(eventRegisterMatch[1]),
+          await readJson(request),
+          actor,
+        );
+        if (!result.ok) {
+          const status =
+            result.code === 'NOT_FOUND'
+              ? 404
+              : result.code === 'ACCOUNT_REQUIRED'
+                ? 401
+                : 400;
+          return fail(result.code!, status, allowed, result.message);
+        }
+        return json(result.data, 201, allowed);
+      }
+
+      const registrationMatch = path.match(/^\/api\/events\/registrations\/([^/]+)$/);
+      if (method === 'GET' && registrationMatch) {
+        const registration = await findOwnedRegistration(
+          env.WEA_DB,
+          decodeURIComponent(registrationMatch[1]),
+          actor,
+          resumeTokenOf(request),
+        );
+        // Deliberately indistinguishable from "no such registration": whether
+        // a reference exists is not something a stranger gets to learn.
+        if (!registration) return fail('NOT_FOUND', 404, allowed);
+        return json(await participantDashboard(env.WEA_DB, registration), 200, allowed);
+      }
+
+      const beginPaymentMatch = path.match(
+        /^\/api\/events\/registrations\/([^/]+)\/payment$/,
+      );
+      if (method === 'POST' && beginPaymentMatch) {
+        const registration = await findOwnedRegistration(
+          env.WEA_DB,
+          decodeURIComponent(beginPaymentMatch[1]),
+          actor,
+          resumeTokenOf(request),
+        );
+        if (!registration) return fail('NOT_FOUND', 404, allowed);
+        const site = await publicSiteUrl(env);
+        const result = await beginEventPayment(
+          env.WEA_DB,
+          registration,
+          paymentSecrets(env),
+          `${site.replace(/\/$/, '')}/events/registration/${registration.reference}`,
+        );
+        if (!result.ok) {
+          return fail(result.code!, result.code === 'ALREADY_PAID' ? 409 : 400, allowed, result.message);
+        }
+        return json(result.data, 201, allowed);
+      }
+
+      /**
+       * Confirms what actually happened with a payment.
+       *
+       * Called when the payer returns from the processor, and safe to call
+       * again at any time: it asks the processor rather than believing the
+       * browser, so a tampered return URL changes nothing.
+       */
+      const verifyPaymentMatch = path.match(
+        /^\/api\/events\/registrations\/([^/]+)\/verify$/,
+      );
+      if (method === 'POST' && verifyPaymentMatch) {
+        const registration = await findOwnedRegistration(
+          env.WEA_DB,
+          decodeURIComponent(verifyPaymentMatch[1]),
+          actor,
+          resumeTokenOf(request),
+        );
+        if (!registration) return fail('NOT_FOUND', 404, allowed);
+
+        const body = await readJson(request);
+        // The client may name the attempt it is asking about; if it does not,
+        // the most recent one is the one that matters.
+        const reference =
+          str(body.payment_reference) ||
+          str(
+            (await latestPayment(env.WEA_DB, str(registration.id)))?.provider_reference,
+          );
+        if (reference === '') return fail('NOT_FOUND', 404, allowed);
+
+        // A payment reference belongs to the registration it was issued for.
+        if (!reference.startsWith(str(registration.reference))) {
+          return fail('NOT_AUTHORISED', 403, allowed);
+        }
+
+        const result = await settleEventPayment(
+          env.WEA_DB,
+          reference,
+          paymentSecrets(env),
+        );
+        if (!result.ok) return fail(result.code!, 404, allowed);
+        return json(result.data, 200, allowed);
+      }
+
+      const joinMatch = path.match(
+        /^\/api\/events\/registrations\/([^/]+)\/sessions\/([^/]+)\/join$/,
+      );
+      if (method === 'POST' && joinMatch) {
+        const registration = await findOwnedRegistration(
+          env.WEA_DB,
+          decodeURIComponent(joinMatch[1]),
+          actor,
+          resumeTokenOf(request),
+        );
+        if (!registration) return fail('NOT_FOUND', 404, allowed);
+        const result = await joinEventSession(
+          env.WEA_DB,
+          registration,
+          decodeURIComponent(joinMatch[2]),
+        );
+        if (!result.ok) {
+          return fail(
+            result.code!,
+            result.code === 'PAYMENT_REQUIRED'
+              ? 402
+              : result.code === 'NOT_FOUND'
+                ? 404
+                : 409,
+            allowed,
+          );
+        }
+        return json(result.data, 200, allowed);
+      }
+
       if (method === 'POST' && path === '/api/auth/logout') {
         const header = request.headers.get('Authorization');
         if (header?.startsWith('Bearer ')) {
@@ -514,6 +890,7 @@ export default {
           path.startsWith('/api/auth/') ||
           path.startsWith('/api/admin/') ||
           path.startsWith('/api/registrations') ||
+          path.startsWith('/api/contact/') ||
           path === '/api/profile' ||
           path === '/api/enrolments'
         ) {
@@ -576,6 +953,40 @@ export default {
         }
       }
 
+      // --- My enquiries ------------------------------------------------------
+
+      if (method === 'GET' && path === '/api/contact/messages') {
+        return json(
+          { messages: await listMyEnquiries(env.WEA_DB, actor.id) },
+          200,
+          allowed,
+        );
+      }
+
+      // Follow up on your own enquiry. Ownership is checked inside.
+      const followUpMatch = path.match(/^\/api\/contact\/messages\/([^/]+)\/replies$/);
+      if (method === 'POST' && followUpMatch) {
+        const result = await replyToEnquiry(
+          env.WEA_DB,
+          actor,
+          followUpMatch[1],
+          await readJson(request),
+        );
+        if (!result.ok) {
+          return fail(
+            result.code!,
+            result.code === 'NOT_FOUND'
+              ? 404
+              : result.code === 'NOT_AUTHORISED'
+                ? 403
+                : 400,
+            allowed,
+            result.message,
+          );
+        }
+        return json({ ok: true }, 201, allowed);
+      }
+
       // --- Registration ----------------------------------------------------
 
       /**
@@ -629,6 +1040,16 @@ export default {
           }
           return json({ registration: result.registration }, 201, allowed);
         }
+      }
+
+      // Every event this account has registered for. Scoped to the caller;
+      // there is no parameter that would widen it to somebody else's.
+      if (method === 'GET' && path === '/api/my/event-registrations') {
+        return json(
+          { registrations: await myEventRegistrations(env.WEA_DB, actor.id) },
+          200,
+          allowed,
+        );
       }
 
       // --- Enrolments ------------------------------------------------------
@@ -762,6 +1183,165 @@ export default {
           }
           await audit(env, actor.id, 'REVIEW_REGISTRATION', reviewMatch[1]);
           return json({ registration: result.registration }, 200, allowed);
+        }
+
+        // --- Enquiries -------------------------------------------------------
+
+        if (method === 'GET' && path === '/api/admin/contact-messages') {
+          return json(
+            {
+              messages: await listEnquiries(
+                env.WEA_DB,
+                url.searchParams.get('status'),
+              ),
+            },
+            200,
+            allowed,
+          );
+        }
+
+        const enquiryReplyMatch = path.match(
+          /^\/api\/admin\/contact-messages\/([^/]+)\/replies$/,
+        );
+        if (method === 'POST' && enquiryReplyMatch) {
+          const result = await replyToEnquiry(
+            env.WEA_DB,
+            actor,
+            enquiryReplyMatch[1],
+            await readJson(request),
+          );
+          if (!result.ok) {
+            return fail(
+              result.code!,
+              result.code === 'NOT_FOUND' ? 404 : 400,
+              allowed,
+              result.message,
+            );
+          }
+          await audit(env, actor.id, 'REPLY_ENQUIRY', enquiryReplyMatch[1]);
+          return json({ ok: true }, 201, allowed);
+        }
+
+        const enquiryMatch = path.match(/^\/api\/admin\/contact-messages\/([^/]+)$/);
+        if (method === 'PATCH' && enquiryMatch) {
+          const result = await setEnquiryStatus(
+            env.WEA_DB,
+            actor.id,
+            enquiryMatch[1],
+            str((await readJson(request)).status),
+          );
+          if (!result.ok) {
+            return fail(result.code!, result.code === 'NOT_FOUND' ? 404 : 400, allowed);
+          }
+          return json({ ok: true }, 200, allowed);
+        }
+
+        // --- Event registrations ---------------------------------------------
+        //
+        // These sit above the generic resource layer because their paths would
+        // otherwise be read as "the resource `event-registrations`, row
+        // `export`". Registrations are not editable rows; they move through a
+        // state machine, so they get their own handlers.
+
+        if (method === 'GET' && path === '/api/admin/event-registrations/export') {
+          const csv = await exportEventRegistrations(
+            env.WEA_DB,
+            url.searchParams.get('event_id'),
+          );
+          await audit(env, actor.id, 'EXPORT_EVENT_REGISTRATIONS');
+          return new Response(csv, {
+            headers: {
+              ...corsHeaders(allowed),
+              'Content-Type': 'text/csv; charset=utf-8',
+              'Content-Disposition':
+                'attachment; filename="wea-event-registrations.csv"',
+            },
+          });
+        }
+
+        if (method === 'GET' && path === '/api/admin/event-registrations') {
+          return json(
+            {
+              registrations: await listEventRegistrations(
+                env.WEA_DB,
+                url.searchParams,
+              ),
+            },
+            200,
+            allowed,
+          );
+        }
+
+        const adminRegistrationMatch = path.match(
+          /^\/api\/admin\/event-registrations\/([^/]+)$/,
+        );
+        if (method === 'PATCH' && adminRegistrationMatch) {
+          const result = await setEventRegistrationStatus(
+            env.WEA_DB,
+            adminRegistrationMatch[1],
+            await readJson(request),
+          );
+          if (!result.ok) {
+            return fail(result.code!, result.code === 'NOT_FOUND' ? 404 : 400, allowed);
+          }
+          await audit(
+            env,
+            actor.id,
+            'SET_EVENT_REGISTRATION_STATUS',
+            adminRegistrationMatch[1],
+          );
+          return json(result.data, 200, allowed);
+        }
+
+        if (method === 'GET' && path === '/api/admin/event-overview') {
+          const eventId = url.searchParams.get('event_id');
+          const [overview, funnel] = await Promise.all([
+            eventOverview(env.WEA_DB, eventId),
+            eventFunnel(env.WEA_DB, eventId),
+          ]);
+          return json({ overview, funnel }, 200, allowed);
+        }
+
+        // Turns stale attempts into named leads. Idempotent, so it is safe to
+        // run from a button as well as from a schedule.
+        if (method === 'POST' && path === '/api/admin/event-registrations/sweep') {
+          const changed = await sweepAbandonedRegistrations(env.WEA_DB);
+          await audit(env, actor.id, 'SWEEP_ABANDONED', undefined, `${changed} rows`);
+          return json({ ok: true, updated: changed }, 200, allowed);
+        }
+
+        // --- Site analytics ---------------------------------------------------
+
+        if (method === 'GET' && path === '/api/admin/analytics') {
+          return json(
+            await siteAnalytics(env.WEA_DB, num(url.searchParams.get('days')) ?? 30),
+            200,
+            allowed,
+          );
+        }
+
+        if (method === 'GET' && path === '/api/admin/share-links/performance') {
+          return json(
+            {
+              links: await shareLinkPerformance(env.WEA_DB),
+              site_url: await publicSiteUrl(env),
+              api_origin: url.origin,
+            },
+            200,
+            allowed,
+          );
+        }
+
+        // A campaign link needs a code, and nobody should have to invent one.
+        if (method === 'POST' && path === '/api/admin/share-links') {
+          const body = await readJson(request);
+          if (str(body.code) === '') body.code = randomHex(4);
+          body.created_by = actor.id;
+          const spec = resourceByName('share-links')!;
+          const result = await createResource(env.WEA_DB, spec, body);
+          if (!result.ok) return fail(result.code!, 400, allowed, result.message);
+          await audit(env, actor.id, 'CREATE', 'share-links', String(result.row?.id));
+          return json({ item: result.row }, 201, allowed);
         }
 
         // --- Catalogue CRUD --------------------------------------------------
@@ -966,5 +1546,19 @@ export default {
       console.error('Unhandled API error', error);
       return fail('SERVER', 500, allowed);
     }
+  },
+
+  /**
+   * Housekeeping.
+   *
+   * Half-finished registrations are moved into the abandoned list so they stop
+   * sitting in the pending queue — they are still kept, because an abandoned
+   * registration is exactly the lead the academy wants. Analytics rows past the
+   * retention window are removed, since nothing is served by keeping page
+   * views for ever.
+   */
+  async scheduled(_event, env, _ctx): Promise<void> {
+    await sweepAbandonedRegistrations(env.WEA_DB);
+    await pruneAnalytics(env.WEA_DB);
   },
 } satisfies ExportedHandler<Env>;

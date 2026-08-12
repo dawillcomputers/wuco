@@ -25,6 +25,12 @@ export interface ResourceSpec {
   /** Column whose value seeds the slug when the client does not supply one. */
   slugFrom?: string;
   hasStatus: boolean;
+  /**
+   * Statuses this entity accepts, when its lifecycle is richer than
+   * draft/published/archived. An event, for instance, also closes its
+   * registration and then completes.
+   */
+  statuses?: readonly string[];
   hasSortOrder: boolean;
   /** ORDER BY clause for listing. */
   defaultOrder: string;
@@ -233,10 +239,142 @@ export const RESOURCES: ResourceSpec[] = [
       boolean('is_active'),
     ],
   },
+  {
+    name: 'events',
+    table: 'events',
+    idPrefix: 'evt',
+    slugFrom: 'title',
+    hasStatus: true,
+    // An event outlives publication: registration closes, then it happens.
+    statuses: [
+      'DRAFT',
+      'PUBLISHED',
+      'REGISTRATION_CLOSED',
+      'COMPLETED',
+      'CANCELLED',
+      'ARCHIVED',
+    ],
+    hasSortOrder: true,
+    defaultOrder: 'CASE WHEN starts_at IS NULL THEN 1 ELSE 0 END, starts_at, sort_order',
+    filters: { status: 'status', event_type: 'event_type' },
+    fields: [
+      text('title', true),
+      text('subtitle'),
+      text('event_type'),
+      text('summary'),
+      text('description'),
+      text('why_attend'),
+      text('who_should_attend'),
+      jsonField('agenda'),
+      nullable('image_key'),
+      nullable('image_url'),
+      nullable('starts_at'),
+      nullable('ends_at'),
+      text('timezone'),
+      text('venue'),
+      text('format'),
+      nullable('registration_opens_at'),
+      nullable('registration_closes_at'),
+      number('capacity'),
+      number('fee_amount'),
+      text('fee_currency'),
+      nullable('payment_method_id'),
+      text('payment_instructions'),
+      text('contact_email'),
+      text('contact_phone'),
+      text('terms'),
+      text('success_message'),
+      boolean('allow_guest_registration'),
+      boolean('featured'),
+    ],
+  },
+  {
+    name: 'event-materials',
+    table: 'event_materials',
+    idPrefix: 'evtmat',
+    hasStatus: true,
+    hasSortOrder: true,
+    defaultOrder: 'sort_order, title',
+    filters: { event_id: 'event_id' },
+    fields: [
+      text('event_id', true),
+      text('title', true),
+      text('description'),
+      text('material_type'),
+      nullable('media_key'),
+      nullable('resource_url'),
+      text('visibility'),
+    ],
+  },
+  {
+    name: 'event-sessions',
+    table: 'event_sessions',
+    idPrefix: 'evtses',
+    hasStatus: true,
+    hasSortOrder: true,
+    defaultOrder: 'starts_at, sort_order',
+    filters: { event_id: 'event_id' },
+    fields: [
+      text('event_id', true),
+      text('title', true),
+      text('session_type'),
+      nullable('starts_at'),
+      nullable('ends_at'),
+      text('timezone'),
+      text('room_name'),
+      nullable('join_url'),
+      nullable('recording_url'),
+      text('speaker'),
+      text('notes'),
+      boolean('is_live'),
+    ],
+  },
+  {
+    name: 'event-registration-fields',
+    table: 'event_registration_fields',
+    idPrefix: 'evtfield',
+    hasStatus: false,
+    hasSortOrder: true,
+    defaultOrder: 'sort_order, label',
+    filters: { event_id: 'event_id' },
+    fields: [
+      nullable('event_id'),
+      text('field_key', true),
+      text('label', true),
+      text('field_type'),
+      jsonField('options'),
+      text('help_text'),
+      boolean('required'),
+      boolean('ask_early'),
+    ],
+  },
+  {
+    name: 'share-links',
+    table: 'share_links',
+    idPrefix: 'shr',
+    hasStatus: true,
+    hasSortOrder: true,
+    defaultOrder: 'created_at DESC',
+    filters: { target_type: 'target_type' },
+    fields: [
+      text('label'),
+      text('code'),
+      text('target_type'),
+      text('target_path', true),
+      text('channel'),
+      text('medium'),
+      text('campaign'),
+      nullable('created_by'),
+    ],
+  },
 ];
 
 export const resourceByName = (name: string) =>
   RESOURCES.find((resource) => resource.name === name);
+
+/** The statuses one resource accepts. */
+const statusesFor = (spec: ResourceSpec): readonly string[] =>
+  spec.statuses ?? CONTENT_STATUSES;
 
 /** Converts one inbound value to the type its column stores. */
 function coerce(field: FieldSpec, raw: unknown): unknown {
@@ -330,7 +468,7 @@ export async function createResource(
 
   if (spec.hasStatus) {
     const status = str(body.status) || 'DRAFT';
-    if (!CONTENT_STATUSES.includes(status as never)) {
+    if (!statusesFor(spec).includes(status)) {
       return { ok: false, code: 'INVALID_STATUS' };
     }
     columns.push('status');
@@ -394,7 +532,7 @@ export async function updateResource(
 
   if (spec.hasStatus && body.status !== undefined) {
     const status = str(body.status);
-    if (!CONTENT_STATUSES.includes(status as never)) {
+    if (!statusesFor(spec).includes(status)) {
       return { ok: false, code: 'INVALID_STATUS' };
     }
     binds.push(status);

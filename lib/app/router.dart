@@ -18,6 +18,11 @@ import '../features/catalogue/presentation/area_screen.dart';
 import '../features/catalogue/presentation/catalogue_screen.dart';
 import '../features/catalogue/presentation/programme_screen.dart';
 import '../features/catalogue/presentation/registration_screen.dart';
+import '../features/contact/presentation/contact_screen.dart';
+import '../features/events/presentation/event_dashboard_screen.dart';
+import '../features/events/presentation/event_detail_screen.dart';
+import '../features/events/presentation/event_registration_screen.dart';
+import '../features/events/presentation/events_screen.dart';
 import '../features/foundation/presentation/not_found_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import '../features/learner/presentation/pages/ai_mentor_page.dart';
@@ -324,7 +329,25 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/faculty',
         builder: (context, state) => const FacultyScreen(),
       ),
+      // Events are content, not code: the calendar, each event page and its
+      // registration all come from rows a Super Admin published.
       GoRoute(path: '/events', builder: (context, state) => const EventsScreen()),
+      GoRoute(
+        path: '/events/registration/:reference',
+        builder: (context, state) => EventDashboardScreen(
+          reference: state.pathParameters['reference'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: '/events/:slug',
+        builder: (context, state) =>
+            EventDetailScreen(slug: state.pathParameters['slug'] ?? ''),
+      ),
+      GoRoute(
+        path: '/events/:slug/register',
+        builder: (context, state) =>
+            EventRegistrationScreen(slug: state.pathParameters['slug'] ?? ''),
+      ),
       GoRoute(
         path: '/research',
         builder: (context, state) => const ResearchScreen(),
