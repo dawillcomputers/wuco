@@ -30,6 +30,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Real paths on the web rather than /#/. Imported only through the
+  # conditional export in lib/core/services/url_strategy.dart, so it never
+  # reaches a mobile or desktop build.
+  flutter_web_plugins:
+    sdk: flutter
   crypto: ^3.0.6
   # Image selection for the Super Admin CMS, so programme artwork is uploaded
   # rather than hard-coded. Works on web, Android, iOS and desktop.
