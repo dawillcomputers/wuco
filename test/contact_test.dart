@@ -31,6 +31,12 @@ Future<void> _pumpContact(WidgetTester tester, {Size size = const Size(1280, 140
     ),
   );
   await tester.pumpAndSettle();
+  // The mock catalogue repository answers after a deliberate delay, and that
+  // timer is not an animation, so pumpAndSettle does not wait for it. Without
+  // this the settings-backed copy has not arrived yet and the timer is still
+  // pending when the test ends.
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -91,7 +97,7 @@ void main() {
     testWidgets('shows the enquiries address', (tester) async {
       await mockNetworkImagesFor(() async {
         await _pumpContact(tester);
-        expect(find.text('enquirie@gmail.com'), findsOneWidget);
+        expect(find.text('enquiries@wucoacademy.org'), findsOneWidget);
       });
     });
 

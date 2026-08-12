@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../core/responsive/responsive.dart';
 import '../../../shared/components/wea_components.dart';
+import '../../../shared/navigation/back_navigation.dart';
 import '../../../shared/widgets/wea_public_widgets.dart';
 import '../application/events_providers.dart';
 import '../data/events_repository.dart';
@@ -160,19 +162,9 @@ class _EventHero extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: () => context.go('/events'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: WEAColors.accentSoft,
-                      padding: EdgeInsets.zero,
-                    ),
-                    icon: const Icon(Icons.arrow_back, size: 16),
-                    label: const Text('ALL EVENTS'),
-                  ),
-                ],
-              ),
+              // Returns to whatever the visitor was reading; a shared link
+              // opened cold has no history, so it falls back to the calendar.
+              const WEABackButton(fallback: '/events', label: 'BACK', onDark: true),
               const SizedBox(height: WEAInsets.lg),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 880),
@@ -269,10 +261,32 @@ class _EventNarrative extends StatelessWidget {
             title: 'About the event',
             child: EventProse(text: event.summary),
           ),
-        if (detail.whyAttend.isNotEmpty)
+        if (detail.whyAttend.isNotEmpty || detail.highlights.isNotEmpty)
           EventSectionBlock(
             title: 'Why attend',
-            child: EventProse(text: detail.whyAttend),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (detail.whyAttend.isNotEmpty)
+                  EventProse(text: detail.whyAttend),
+                if (detail.highlights.isNotEmpty) ...[
+                  if (detail.whyAttend.isNotEmpty)
+                    const SizedBox(height: WEAInsets.md),
+                  for (final highlight in detail.highlights)
+                    _Bullet(text: highlight),
+                ],
+              ],
+            ),
+          ),
+        if (detail.speakers.isNotEmpty)
+          EventSectionBlock(
+            title: 'Speakers',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final speaker in detail.speakers) _Bullet(text: speaker),
+              ],
+            ),
           ),
         if (detail.whoShouldAttend.isNotEmpty)
           EventSectionBlock(
@@ -310,6 +324,30 @@ class _EventNarrative extends StatelessWidget {
               ],
             ),
           ),
+        if (detail.practicalities.isNotEmpty)
+          EventSectionBlock(
+            title: 'What to know before you register',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final item in detail.practicalities)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: WEAInsets.md),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.$1,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 2),
+                        EventProse(text: item.$2),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
         if (detail.terms.isNotEmpty)
           EventSectionBlock(
             title: 'Terms and conditions',
@@ -328,6 +366,42 @@ class _EventNarrative extends StatelessWidget {
       ],
     );
   }
+}
+
+/// One highlight or speaker.
+class _Bullet extends StatelessWidget {
+  const _Bullet({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: WEAInsets.xs),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: WEAMaxWidths.readable),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 7, right: WEAInsets.sm),
+            child: SizedBox(
+              width: 5,
+              height: 5,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: WEAColors.accent,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(text, style: Theme.of(context).textTheme.bodyLarge),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _SessionRow extends StatelessWidget {
@@ -434,6 +508,21 @@ class _RegistrationPanel extends StatelessWidget {
                 : 'Registration for this event is not currently open.',
             style: theme.textTheme.bodySmall,
           ),
+          if (detail.hasFlier) ...[
+            const SizedBox(height: WEAInsets.sm),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => launchUrl(
+                  Uri.parse(detail.flierUrl!),
+                  mode: LaunchMode.externalApplication,
+                ),
+                style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                icon: const Icon(Icons.download_outlined, size: 17),
+                label: const Text('DOWNLOAD THE FLIER'),
+              ),
+            ),
+          ],
           if (detail.allowGuestRegistration && open) ...[
             const SizedBox(height: WEAInsets.sm),
             Row(

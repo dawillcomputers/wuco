@@ -531,9 +531,59 @@ const cmsResources = <CmsResource>[
         help: 'One line per item, e.g. "09:00 Registration and coffee".',
       ),
       CmsField(
+        column: 'highlights',
+        label: 'Highlights',
+        kind: CmsFieldKind.stringList,
+        help: 'One per line. The short reasons somebody should attend.',
+      ),
+      CmsField(
+        column: 'speakers',
+        label: 'Speakers',
+        kind: CmsFieldKind.stringList,
+        help: 'One per line, e.g. "Dr Amina Bello — Director, Trade Policy".',
+      ),
+      CmsField(
+        column: 'what_is_included',
+        label: 'What the fee includes',
+        kind: CmsFieldKind.multiline,
+        help: 'Materials, meals, certificate — whatever the registrant gets.',
+      ),
+      CmsField(
+        column: 'arrival_information',
+        label: 'Arrival and access',
+        kind: CmsFieldKind.multiline,
+        help: 'Where to go, what time to arrive, parking, joining details.',
+      ),
+      CmsField(column: 'dress_code', label: 'Dress code'),
+      CmsField(
+        column: 'accreditation',
+        label: 'Accreditation or CPD',
+        kind: CmsFieldKind.multiline,
+      ),
+      CmsField(
+        column: 'cancellation_policy',
+        label: 'Cancellation and refunds',
+        kind: CmsFieldKind.multiline,
+      ),
+      CmsField(
+        column: 'registration_note',
+        label: 'Note shown on the registration form',
+        kind: CmsFieldKind.multiline,
+        help: 'Read at the moment somebody is deciding. Keep it to a sentence.',
+      ),
+      CmsField(
         column: 'image_key',
         label: 'Banner image',
         kind: CmsFieldKind.image,
+        help: 'Upload the event artwork. Also used for social preview cards.',
+      ),
+      CmsField(
+        column: 'flier_key',
+        label: 'Event flier',
+        kind: CmsFieldKind.image,
+        help:
+            'Upload a flier or invitation (image or PDF) for people to '
+            'download and forward.',
       ),
       CmsField(
         column: 'starts_at',

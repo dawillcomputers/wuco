@@ -21,7 +21,7 @@ class ContactScreen extends ConsumerWidget {
   const ContactScreen({super.key});
 
   /// Fallback used before the office has set the address in the CMS.
-  static const fallbackEmail = 'enquirie@gmail.com';
+  static const fallbackEmail = 'enquiries@wucoacademy.org';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

@@ -63,9 +63,12 @@ export interface EventResult {
   data?: Record<string, unknown>;
 }
 
+/** Decodes the list columns an event carries, so the client gets arrays. */
 const decodeAgenda = (row: Record<string, unknown>) => ({
   ...row,
   agenda: parseJson<unknown[]>(row.agenda, []),
+  highlights: parseJson<unknown[]>(row.highlights, []),
+  speakers: parseJson<unknown[]>(row.speakers, []),
 });
 
 // ---------------------------------------------------------------------------

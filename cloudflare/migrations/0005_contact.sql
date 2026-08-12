@@ -52,6 +52,6 @@ CREATE TABLE IF NOT EXISTS contact_sequence (
 );
 
 INSERT OR IGNORE INTO site_settings (key, value) VALUES
-  ('contact_email', 'enquirie@gmail.com'),
+  ('contact_email', 'enquiries@wucoacademy.org'),
   ('contact_intro', 'Send an enquiry and the academy office will respond. If you are signed in, replies appear here as well as by email.'),
   ('contact_response_time', 'We aim to respond within two working days.');

@@ -192,6 +192,61 @@ the same cron that sweeps abandoned registrations.
 
 ---
 
+## 8a. TRANSACTIONAL EMAIL
+
+`cloudflare/src/email.ts` sends five messages:
+
+| Trigger | Message |
+| --- | --- |
+| Account created (password or social) | Welcome |
+| Event registration completed | Registration received, with payment instructions where a fee is due |
+| Event payment verified | Receipt, with the amount and payment reference |
+| Event payment failed | Saved-but-unpaid, with a link to try again |
+| Programme application submitted / confirmed | Application received / place confirmed |
+
+Three properties are built in.
+
+**Sending never breaks what triggered it.** Every send runs under
+`ctx.waitUntil`, so the response returns immediately and a slow or failing mail
+provider can never delay or fail a registration or a payment.
+
+**Wording belongs to the academy.** The copy comes from `email_*` site settings
+editable under Website copy, not from strings in the source.
+
+**Nothing is sent twice.** A receipt is sent only when the payment status
+actually changes, so refreshing the return page — or a webhook arriving after
+the redirect — does not produce a second one.
+
+Every attempt is written to `email_log` with its status, including `SKIPPED`
+when no provider is configured, so the office can always answer "was anything
+sent to this person".
+
+### Configuring Zoho
+
+The Worker uses **Zoho ZeptoMail**, Zoho's transactional product, which speaks
+HTTPS. Ordinary Zoho Mail is IMAP/SMTP, which a Worker cannot authenticate
+against — so a ZeptoMail send-mail token is what is needed here, not a mailbox
+password.
+
+1. In Zoho, add and verify the sending domain (`wucoacademy.org`), including
+   the SPF and DKIM records Zoho supplies. Without these, mail will be filed as
+   spam even when it sends.
+2. Create a Mail Agent and copy its **send-mail token**.
+3. Set the secrets:
+
+```bash
+cd cloudflare
+npx wrangler secret put ZEPTOMAIL_TOKEN       # the send-mail token
+npx wrangler secret put EMAIL_FROM_ADDRESS    # e.g. no-reply@wucoacademy.org
+# Only if the account is on a non-default region:
+npx wrangler secret put ZEPTOMAIL_HOST        # e.g. api.zeptomail.eu
+```
+
+Until those are set, everything else works and each message is logged as
+`SKIPPED` rather than lost.
+
+---
+
 ## 9. SOCIAL SIGN-IN
 
 `social.ts` verifies a Google or Apple ID token against the provider's

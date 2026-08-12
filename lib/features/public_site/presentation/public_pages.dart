@@ -3,9 +3,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
-import '../../../core/responsive/responsive.dart';
 import '../../../data/services/public_content_service.dart';
 import '../../../shared/components/wea_components.dart';
+import '../../../shared/widgets/wea_auto_grid.dart';
 import '../../../shared/widgets/wea_public_widgets.dart';
 
 class EditorialPage extends StatelessWidget {
@@ -116,23 +116,14 @@ class FacultyScreen extends StatelessWidget {
                 WEAChip(label: 'Policy & Institutions'),
               ],
             ),
-            const SizedBox(height: 34),
-            ResponsiveBuilder(
-              builder: (context, b) {
-                final c = b == WEABreakpoint.mobile ? 1 : 3;
-                return GridView.count(
-                  crossAxisCount: c,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  childAspectRatio: .38,
-                  crossAxisSpacing: 24,
-                  mainAxisSpacing: 30,
-                  children: [
-                    for (final member in PublicContentService.faculty)
-                      WEAFacultyCard(member: member),
-                  ],
-                );
-              },
+            const SizedBox(height: WEAInsets.xl),
+            WEAAutoGrid(
+              spacing: WEAInsets.lg,
+              runSpacing: WEAInsets.xl,
+              children: [
+                for (final member in PublicContentService.faculty)
+                  WEAFacultyCard(member: member),
+              ],
             ),
           ],
         ),

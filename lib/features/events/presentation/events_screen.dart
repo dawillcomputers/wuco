@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../shared/components/wea_components.dart';
+import '../../../shared/widgets/wea_auto_grid.dart';
 import '../../../shared/widgets/wea_public_widgets.dart';
 import '../application/events_providers.dart';
 import '../data/events_repository.dart';
@@ -209,7 +210,9 @@ class _EventSections extends StatelessWidget {
             ),
           ),
           const SizedBox(height: WEAInsets.md),
-          EventGrid(
+          WEAAutoGrid(
+            spacing: WEAInsets.md,
+            runSpacing: WEAInsets.md,
             children: [for (final event in upcoming) EventCard(event: event)],
           ),
         ],
@@ -223,8 +226,13 @@ class _EventSections extends StatelessWidget {
             ),
           ),
           const SizedBox(height: WEAInsets.md),
-          EventGrid(
-            children: [for (final event in past) EventCard(event: event)],
+          WEAAutoGrid(
+            spacing: WEAInsets.md,
+            runSpacing: WEAInsets.md,
+            children: [
+              for (final event in past)
+                EventCard(event: event, registrationOpen: false),
+            ],
           ),
         ],
       ],

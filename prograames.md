@@ -228,7 +228,7 @@ a mailbox the application cannot see.
   is in the API, not the interface.
 
 The published address is `contact_email` in site settings — currently
-`enquirie@gmail.com` — and is editable under Website copy.
+`enquiries@wucoacademy.org` — and is editable under Website copy.
 
 ---
 

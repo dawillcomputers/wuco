@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../core/responsive/responsive.dart';
 import '../../../shared/components/wea_components.dart';
+import '../../../shared/navigation/back_navigation.dart';
 import '../../../shared/widgets/wea_public_widgets.dart';
 import '../application/events_providers.dart';
 import '../data/events_repository.dart';
@@ -281,7 +281,8 @@ class _EventDashboardScreenState extends ConsumerState<EventDashboardScreen> {
         const SizedBox(height: WEAInsets.xxl),
         WEAOutlinedButton(
           label: 'BACK TO EVENT',
-          onPressed: () => context.go('/events/${data.event.slug}'),
+          onPressed: () =>
+              weaGoBack(context, fallback: '/events/${data.event.slug}'),
         ),
       ],
     );

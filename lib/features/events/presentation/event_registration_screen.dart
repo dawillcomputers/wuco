@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../shared/components/wea_components.dart';
+import '../../../shared/navigation/back_navigation.dart';
 import '../../../shared/widgets/wea_public_widgets.dart';
 import '../../authentication/application/auth_controller.dart';
 import '../application/events_providers.dart';
@@ -236,12 +237,7 @@ class _EventRegistrationScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextButton.icon(
-          onPressed: () => context.go('/events/${event.slug}'),
-          style: TextButton.styleFrom(padding: EdgeInsets.zero),
-          icon: const Icon(Icons.arrow_back, size: 16),
-          label: const Text('BACK TO EVENT'),
-        ),
+        WEABackButton(fallback: '/events/${event.slug}'),
         const SizedBox(height: WEAInsets.md),
         Text(event.title, style: theme.textTheme.headlineMedium),
         const SizedBox(height: 6),
@@ -323,6 +319,20 @@ class _EventRegistrationScreenState
                 : 'Just the essentials — you can pay on the next screen but one.',
             style: theme.textTheme.bodyMedium,
           ),
+          if (data.registrationNote.isNotEmpty) ...[
+            const SizedBox(height: WEAInsets.md),
+            Container(
+              padding: const EdgeInsets.all(WEAInsets.md),
+              decoration: BoxDecoration(
+                color: WEAColors.accent.withValues(alpha: .07),
+                borderRadius: BorderRadius.circular(WEAInsets.smallRadius),
+              ),
+              child: Text(
+                data.registrationNote,
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
+          ],
           if (!signedIn) ...[
             const SizedBox(height: WEAInsets.md),
             _SignInPrompt(slug: widget.slug),

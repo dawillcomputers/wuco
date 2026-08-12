@@ -3,20 +3,26 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_dimensions.dart';
-import '../../../../core/responsive/responsive.dart';
 import '../../../../shared/components/wea_components.dart';
 import '../../domain/event_models.dart';
 
 /// The card an event appears as in a listing.
+///
+/// The whole card opens the event, and the action reserves a seat directly —
+/// a visitor who has already decided should not have to read the page first.
+/// Where the event is paid, that action leads into the same verified payment
+/// flow as the event page; nothing about the fee is decided here.
 class EventCard extends StatelessWidget {
-  const EventCard({super.key, required this.event});
+  const EventCard({super.key, required this.event, this.registrationOpen = true});
 
   final WeaEvent event;
+  final bool registrationOpen;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final artwork = event.artwork;
+    final open = registrationOpen && event.status == EventStatus.published;
 
     return InkWell(
       onTap: () => context.go('/events/${event.slug}'),
@@ -42,73 +48,79 @@ class EventCard extends StatelessWidget {
                           const ColoredBox(color: WEAColors.elevated),
                     ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(WEAInsets.lg),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      if (event.eventType.isNotEmpty)
-                        WEABadge(label: _titleCase(event.eventType)),
-                      const Spacer(),
-                      Text(
-                        event.format.label.toUpperCase(),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: WEAColors.mutedText,
-                          letterSpacing: 1.1,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: WEAInsets.sm),
-                  Text(
-                    event.title,
-                    style: theme.textTheme.titleLarge,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: WEAInsets.xs),
-                  Text(
-                    formatEventDate(event.startsAt),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: WEAColors.accentDeep,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (event.summary.isNotEmpty) ...[
-                    const SizedBox(height: WEAInsets.sm),
-                    Text(
-                      event.summary,
-                      style: theme.textTheme.bodyMedium,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                  const SizedBox(height: WEAInsets.md),
-                  const Divider(height: 1),
-                  const SizedBox(height: WEAInsets.sm),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          event.feeLabel,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: WEAColors.primaryText,
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(WEAInsets.md),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        if (event.eventType.isNotEmpty)
+                          WEABadge(label: _titleCase(event.eventType)),
+                        const Spacer(),
+                        Text(
+                          event.format.label.toUpperCase(),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: WEAColors.mutedText,
+                            letterSpacing: 1.1,
                           ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: WEAInsets.xs),
+                    Text(
+                      event.title,
+                      style: theme.textTheme.titleMedium,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      formatEventDate(event.startsAt),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: WEAColors.accentDeep,
+                        fontWeight: FontWeight.w600,
                       ),
+                    ),
+                    if (event.summary.isNotEmpty) ...[
+                      const SizedBox(height: WEAInsets.xs),
                       Text(
-                        'VIEW EVENT →',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: WEAColors.accent,
-                          letterSpacing: 1.1,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        event.summary,
+                        style: theme.textTheme.bodySmall,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
-                  ),
-                ],
+                    // Holds the footer to the bottom, so cards in a row line
+                    // up on their fee and action rather than drifting.
+                    const Spacer(),
+                    const SizedBox(height: WEAInsets.sm),
+                    const Divider(height: 1),
+                    const SizedBox(height: WEAInsets.sm),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            event.feeLabel,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              color: WEAColors.primaryText,
+                            ),
+                          ),
+                        ),
+                        WEAOutlinedButton(
+                          label: open ? 'RESERVE A SEAT' : 'VIEW EVENT',
+                          compact: true,
+                          onPressed: () => context.go(
+                            open
+                                ? '/events/${event.slug}/register'
+                                : '/events/${event.slug}',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -323,35 +335,6 @@ class EventMaterialCard extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Lays children out in a responsive grid without a nested scroll view.
-class EventGrid extends StatelessWidget {
-  const EventGrid({super.key, required this.children, this.spacing = 24});
-
-  final List<Widget> children;
-  final double spacing;
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final columns = switch (WEAResponsive.breakpointOf(constraints.maxWidth)) {
-        WEABreakpoint.mobile => 1,
-        WEABreakpoint.tablet => 2,
-        _ => 3,
-      };
-      final width =
-          (constraints.maxWidth - spacing * (columns - 1)) / columns;
-      return Wrap(
-        spacing: spacing,
-        runSpacing: spacing,
-        children: [
-          for (final child in children)
-            SizedBox(width: width.clamp(240, constraints.maxWidth), child: child),
-        ],
-      );
-    },
-  );
 }
 
 /// A step indicator for the registration flow.

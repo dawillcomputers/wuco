@@ -101,7 +101,7 @@ class OfflineEventsRepository
       ],
       materials: const [],
       sessions: const [],
-      contactEmail: 'enquirie@gmail.com',
+      contactEmail: 'enquiries@wucoacademy.org',
       contactPhone: '',
       terms: '',
       paymentInstructions:

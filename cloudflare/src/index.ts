@@ -62,6 +62,7 @@ import {
   settleEventPayment,
   sweepAbandonedRegistrations,
 } from './events';
+import { EmailTemplate, EmailContext, sendTemplate } from './email';
 import { corsHeaders, fail, json, num, readJson, str } from './http';
 import { deleteMedia, listMedia, serveMedia, uploadMedia } from './media';
 import { readWebhook } from './payments';
@@ -122,6 +123,13 @@ export interface Env {
    * and "identify people", so it must not be predictable.
    */
   ANALYTICS_SALT?: string;
+
+  // Transactional email through Zoho. Without these the academy still takes
+  // registrations and payments; it simply does not write to anybody, and the
+  // email log records each message as SKIPPED rather than losing it silently.
+  ZEPTOMAIL_TOKEN?: string;
+  ZEPTOMAIL_HOST?: string;
+  EMAIL_FROM_ADDRESS?: string;
 }
 
 interface UserRow {
@@ -308,8 +316,125 @@ async function publicSiteUrl(env: Env): Promise<string> {
 const resumeTokenOf = (request: Request) =>
   request.headers.get('X-Registration-Token') ?? undefined;
 
+/** Money as the academy writes it, matching what the interface shows. */
+function money(amount: unknown, currency: unknown): string {
+  const value = num(amount) ?? 0;
+  const code = str(currency).toUpperCase();
+  if (value <= 0) return 'No charge';
+  const symbol = { NGN: '₦', USD: '$', GBP: '£', EUR: '€' }[code];
+  const grouped = value
+    .toFixed(Number.isInteger(value) ? 0 : 2)
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return symbol ? `${symbol}${grouped}` : `${code} ${grouped}`;
+}
+
+type Mailer = (template: EmailTemplate, context: EmailContext) => void;
+
+/**
+ * Writes to an event registrant about their registration.
+ *
+ * Gathers what the message needs — the event's title and date, the amount as
+ * it was agreed — so the templates stay presentation and the callers stay
+ * short.
+ */
+async function mailEventRegistration(
+  env: Env,
+  mail: Mailer,
+  registration: Record<string, unknown>,
+  kind: 'received' | 'paid' | 'failed',
+  paymentReference = '',
+): Promise<void> {
+  const event = await env.WEA_DB.prepare(
+    'SELECT title, starts_at, payment_instructions FROM events WHERE id = ?1',
+  )
+    .bind(registration.event_id)
+    .first<{ title: string; starts_at: string | null; payment_instructions: string }>();
+
+  const fullName = `${str(registration.first_name)} ${str(registration.last_name)}`.trim();
+  const template: EmailTemplate =
+    kind === 'paid'
+      ? 'event_payment_receipt'
+      : kind === 'failed'
+        ? 'event_payment_failed'
+        : 'event_registration_received';
+
+  mail(template, {
+    to: { email: str(registration.email), name: fullName },
+    reference: str(registration.reference),
+    userId: (registration.user_id as string | null) ?? undefined,
+    data: {
+      first_name: str(registration.first_name),
+      full_name: fullName,
+      event_title: str(event?.title),
+      event_date: str(event?.starts_at).slice(0, 10),
+      amount: money(registration.amount, registration.currency),
+      status: str(registration.status).replace(/_/g, ' ').toLowerCase(),
+      payment_reference: paymentReference,
+      // Only useful while they still owe something.
+      payment_instructions:
+        kind === 'received' && (num(registration.amount) ?? 0) > 0
+          ? str(event?.payment_instructions)
+          : '',
+    },
+  });
+}
+
+/**
+ * Settles a payment and tells the registrant what happened.
+ *
+ * Shared by the return redirect and the webhook, so a payer is written to
+ * exactly once whichever of the two arrives first — the settle function is
+ * idempotent, and a payment already marked paid returns without re-notifying.
+ */
+async function settleAndNotify(
+  env: Env,
+  mail: Mailer,
+  paymentReference: string,
+  registrationId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const before = await env.WEA_DB.prepare(
+    'SELECT payment_status FROM event_registrations WHERE id = ?1',
+  )
+    .bind(registrationId)
+    .first<{ payment_status: string }>();
+
+  const result = await settleEventPayment(
+    env.WEA_DB,
+    paymentReference,
+    paymentSecrets(env),
+  );
+  if (!result.ok) return undefined;
+
+  const after = await env.WEA_DB.prepare(
+    'SELECT * FROM event_registrations WHERE id = ?1',
+  )
+    .bind(registrationId)
+    .first<Record<string, unknown>>();
+  if (!after) return result.data;
+
+  // Only on a change of outcome, so refreshing the page does not send a
+  // second receipt.
+  const changed = before?.payment_status !== after.payment_status;
+  if (changed && after.payment_status === 'PAID') {
+    await mailEventRegistration(env, mail, after, 'paid', paymentReference);
+  } else if (changed && after.payment_status === 'FAILED') {
+    await mailEventRegistration(env, mail, after, 'failed', paymentReference);
+  }
+  return result.data;
+}
+
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
+    /**
+     * Queues a message without making the caller wait for a mail server.
+     *
+     * `waitUntil` keeps the Worker alive until the send finishes, so the
+     * response goes back immediately and a slow or failing provider can never
+     * delay — or fail — a registration or a payment.
+     */
+    const mail = (template: EmailTemplate, context: EmailContext) =>
+      ctx.waitUntil(sendTemplate(env, template, context));
+
     const origin = request.headers.get('Origin');
     const allowed = origin === env.ALLOWED_ORIGIN ? origin : undefined;
     const url = new URL(request.url);
@@ -481,7 +606,14 @@ export default {
         );
         if (!notice.ok) return fail('NOT_AUTHORISED', 401, allowed);
         if (notice.reference !== '') {
-          await settleEventPayment(env.WEA_DB, notice.reference, paymentSecrets(env));
+          const payment = await env.WEA_DB.prepare(
+            'SELECT registration_id FROM event_payments WHERE provider_reference = ?1',
+          )
+            .bind(notice.reference)
+            .first<{ registration_id: string }>();
+          if (payment) {
+            await settleAndNotify(env, mail, notice.reference, payment.registration_id);
+          }
         }
         return json({ ok: true }, 200, allowed);
       }
@@ -511,6 +643,15 @@ export default {
         if (!row) return fail('INVALID_CREDENTIALS', 401, allowed);
         if (row.status !== 'ACTIVE') return fail(`ACCOUNT_${row.status}`, 403, allowed);
         const session = await createSession(env, row.id);
+        // Only on the sign-in that created the account. Linking a provider to
+        // an account WEA already had is not a new arrival.
+        if (result.created) {
+          mail('welcome', {
+            to: { email: row.email, name: `${row.first_name} ${row.last_name}`.trim() },
+            data: { first_name: row.first_name },
+            userId: row.id,
+          });
+        }
         return json(
           { profile: toProfile(row), session, created: result.created === true },
           result.created ? 201 : 200,
@@ -601,6 +742,11 @@ export default {
         );
         const row = await findUserById(env, id);
         const session = await createSession(env, id);
+        mail('welcome', {
+          to: { email, name: `${row!.first_name} ${row!.last_name}`.trim() },
+          data: { first_name: row!.first_name },
+          userId: id,
+        });
         return json(
           {
             profile: toProfile(row!),
@@ -746,10 +892,13 @@ export default {
 
       const eventRegisterMatch = path.match(/^\/api\/events\/([^/]+)\/registrations$/);
       if (method === 'POST' && eventRegisterMatch) {
+        // Read once: the body is a stream, and it is needed again below to see
+        // whether this was the registrant's final save.
+        const body = await readJson(request);
         const result = await saveEventRegistration(
           env.WEA_DB,
           decodeURIComponent(eventRegisterMatch[1]),
-          await readJson(request),
+          body,
           actor,
         );
         if (!result.ok) {
@@ -760,6 +909,12 @@ export default {
                 ? 401
                 : 400;
           return fail(result.code!, status, allowed, result.message);
+        }
+        // Acknowledged only once the registrant says they have finished.
+        // Writing to somebody who is still filling the form in would be noise.
+        if (str(body.stage) === 'COMPLETE') {
+          const saved = result.data?.registration as Record<string, unknown>;
+          if (saved) await mailEventRegistration(env, mail, saved, 'received');
         }
         return json(result.data, 201, allowed);
       }
@@ -836,13 +991,14 @@ export default {
           return fail('NOT_AUTHORISED', 403, allowed);
         }
 
-        const result = await settleEventPayment(
-          env.WEA_DB,
+        const settled = await settleAndNotify(
+          env,
+          mail,
           reference,
-          paymentSecrets(env),
+          str(registration.id),
         );
-        if (!result.ok) return fail(result.code!, 404, allowed);
-        return json(result.data, 200, allowed);
+        if (!settled) return fail('NOT_FOUND', 404, allowed);
+        return json(settled, 200, allowed);
       }
 
       const joinMatch = path.match(
@@ -1038,7 +1194,30 @@ export default {
                   : 400;
             return fail(result.code!, status, allowed, result.message);
           }
-          return json({ registration: result.registration }, 201, allowed);
+          const registration = result.registration!;
+          mail('programme_registration_received', {
+            to: {
+              email: actor.email,
+              name: `${actor.first_name} ${actor.last_name}`.trim(),
+            },
+            reference: str(registration.reference),
+            userId: actor.id,
+            data: {
+              first_name: actor.first_name,
+              programme_title: str(registration.programme_title),
+              amount: money(registration.amount, registration.currency),
+              payment_instructions: str(
+                (
+                  await env.WEA_DB.prepare(
+                    'SELECT instructions FROM payment_methods WHERE id = ?1',
+                  )
+                    .bind(registration.payment_method_id ?? '')
+                    .first<{ instructions: string }>()
+                )?.instructions,
+              ),
+            },
+          });
+          return json({ registration }, 201, allowed);
         }
       }
 
@@ -1182,6 +1361,31 @@ export default {
             return fail(result.code!, result.code === 'NOT_FOUND' ? 404 : 400, allowed);
           }
           await audit(env, actor.id, 'REVIEW_REGISTRATION', reviewMatch[1]);
+          // Confirming a place is the moment the applicant hears they are in.
+          if (str(result.registration?.status) === 'CONFIRMED') {
+            const record = result.registration!;
+            const applicant = await findUserById(env, str(record.user_id));
+            const programme = await env.WEA_DB.prepare(
+              'SELECT title FROM programmes WHERE id = ?1',
+            )
+              .bind(record.programme_id)
+              .first<{ title: string }>();
+            if (applicant) {
+              mail('programme_confirmed', {
+                to: {
+                  email: applicant.email,
+                  name: `${applicant.first_name} ${applicant.last_name}`.trim(),
+                },
+                reference: str(record.reference),
+                userId: applicant.id,
+                data: {
+                  first_name: applicant.first_name,
+                  programme_title: str(programme?.title),
+                  amount: money(record.amount, record.currency),
+                },
+              });
+            }
+          }
           return json({ registration: result.registration }, 200, allowed);
         }
 

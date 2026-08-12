@@ -7,6 +7,7 @@ import '../../../../app/theme/app_dimensions.dart';
 import '../../../../core/responsive/responsive.dart';
 import '../../../../data/services/public_content_service.dart';
 import '../../../../shared/components/wea_components.dart';
+import '../../../../shared/widgets/wea_auto_grid.dart';
 import '../../../../shared/widgets/wea_public_widgets.dart';
 import '../../../catalogue/application/catalogue_providers.dart';
 import '../../../catalogue/presentation/widgets/catalogue_cards.dart';
@@ -204,10 +205,9 @@ class _WhyWEA extends StatelessWidget {
           eyebrow: 'WHY WEA',
           title: 'Built for decisions that matter.',
         ),
-        const SizedBox(height: 38),
-        ResponsiveBuilder(
-          builder: (context, breakpoint) {
-            final cols = breakpoint == WEABreakpoint.mobile ? 1 : 2;
+        const SizedBox(height: WEAInsets.xl),
+        Builder(
+          builder: (context) {
             const values = [
               (
                 '01',
@@ -240,11 +240,14 @@ class _WhyWEA extends StatelessWidget {
                 'Learning continues beyond the classroom.',
               ),
             ];
-            return GridView.count(
-              crossAxisCount: cols,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: breakpoint == WEABreakpoint.mobile ? 1.2 : 1.7,
+            // Text blocks, so the columns are not stretched to match each
+            // other — that would only spread six short paragraphs apart.
+            return WEAAutoGrid(
+              tabletColumns: 2,
+              desktopColumns: 2,
+              spacing: WEAInsets.xxl,
+              runSpacing: WEAInsets.lg,
+              stretch: false,
               children: [
                 for (final value in values)
                   _WhyItem(number: value.$1, title: value.$2, body: value.$3),
@@ -266,7 +269,9 @@ class _WhyItem extends StatelessWidget {
   final String number, title, body;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(0, 16, 28, 16),
+    // The grid now supplies the gaps between items, so the block only needs
+    // room on its right to keep the two columns apart.
+    padding: const EdgeInsets.only(right: WEAInsets.lg),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -390,23 +395,14 @@ class _FacultyShowcase extends StatelessWidget {
           actionLabel: 'VIEW FACULTY',
           actionPath: '/faculty',
         ),
-        const SizedBox(height: 36),
-        ResponsiveBuilder(
-          builder: (context, b) {
-            final c = b == WEABreakpoint.mobile ? 1 : 3;
-            return GridView.count(
-              crossAxisCount: c,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 24,
-              mainAxisSpacing: 32,
-              childAspectRatio: .38,
-              children: [
-                for (final member in PublicContentService.faculty)
-                  WEAFacultyCard(member: member),
-              ],
-            );
-          },
+        const SizedBox(height: WEAInsets.xl),
+        WEAAutoGrid(
+          spacing: WEAInsets.lg,
+          runSpacing: WEAInsets.xl,
+          children: [
+            for (final member in PublicContentService.faculty)
+              WEAFacultyCard(member: member),
+          ],
         ),
       ],
     ),
@@ -563,23 +559,14 @@ class _EventsShowcase extends StatelessWidget {
           actionLabel: 'VIEW ALL EVENTS',
           actionPath: '/events',
         ),
-        const SizedBox(height: 36),
-        ResponsiveBuilder(
-          builder: (context, b) {
-            final c = b == WEABreakpoint.mobile ? 1 : 3;
-            return GridView.count(
-              crossAxisCount: c,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 20,
-              mainAxisSpacing: 20,
-              childAspectRatio: .37,
-              children: [
-                for (final e in PublicContentService.events)
-                  WEAEventPreview(event: e),
-              ],
-            );
-          },
+        const SizedBox(height: WEAInsets.xl),
+        WEAAutoGrid(
+          spacing: WEAInsets.md,
+          runSpacing: WEAInsets.md,
+          children: [
+            for (final e in PublicContentService.events)
+              WEAEventPreview(event: e),
+          ],
         ),
       ],
     ),

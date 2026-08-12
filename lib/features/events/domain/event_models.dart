@@ -40,6 +40,11 @@ List<Map<String, dynamic>> _rows(Object? value) => [
     Map<String, dynamic>.from(row as Map),
 ];
 
+List<String> _stringList(Object? value) => [
+  for (final item in (value as List? ?? const []))
+    if ('$item'.trim().isNotEmpty) '$item'.trim(),
+];
+
 // ---------------------------------------------------------------------------
 // Enumerations
 // ---------------------------------------------------------------------------
@@ -287,6 +292,15 @@ class EventDetail {
     required this.registrationOpen,
     required this.allowGuestRegistration,
     required this.registrationClosesAt,
+    this.highlights = const [],
+    this.speakers = const [],
+    this.whatIsIncluded = '',
+    this.arrivalInformation = '',
+    this.dressCode = '',
+    this.accreditation = '',
+    this.cancellationPolicy = '',
+    this.registrationNote = '',
+    this.flierUrl,
   });
 
   final WeaEvent event;
@@ -307,6 +321,33 @@ class EventDetail {
   final bool registrationOpen;
   final bool allowGuestRegistration;
   final DateTime? registrationClosesAt;
+
+  /// The short reasons somebody should attend.
+  final List<String> highlights;
+  final List<String> speakers;
+  final String whatIsIncluded;
+  final String arrivalInformation;
+  final String dressCode;
+  final String accreditation;
+  final String cancellationPolicy;
+
+  /// Shown on the registration form, where it is actually read.
+  final String registrationNote;
+
+  /// A downloadable flier, separate from the page's banner artwork.
+  final String? flierUrl;
+
+  bool get hasFlier => (flierUrl ?? '').trim().isNotEmpty;
+
+  /// Practicalities, rendered as one block so empty ones simply do not appear.
+  List<(String, String)> get practicalities => [
+    if (whatIsIncluded.isNotEmpty) ('What your fee includes', whatIsIncluded),
+    if (arrivalInformation.isNotEmpty) ('Arrival and access', arrivalInformation),
+    if (dressCode.isNotEmpty) ('Dress code', dressCode),
+    if (accreditation.isNotEmpty) ('Accreditation', accreditation),
+    if (cancellationPolicy.isNotEmpty)
+      ('Cancellation and refunds', cancellationPolicy),
+  ];
 
   factory EventDetail.fromMap(Map<String, dynamic> map) {
     final event = Map<String, dynamic>.from(map['event'] as Map? ?? const {});
@@ -330,6 +371,18 @@ class EventDetail {
       registrationOpen: _bool(map, 'registration_open'),
       allowGuestRegistration: _bool(event, 'allow_guest_registration'),
       registrationClosesAt: _date(event, 'registration_closes_at'),
+      highlights: _stringList(event['highlights']),
+      speakers: _stringList(event['speakers']),
+      whatIsIncluded: _text(event, 'what_is_included'),
+      arrivalInformation: _text(event, 'arrival_information'),
+      dressCode: _text(event, 'dress_code'),
+      accreditation: _text(event, 'accreditation'),
+      cancellationPolicy: _text(event, 'cancellation_policy'),
+      registrationNote: _text(event, 'registration_note'),
+      flierUrl: resolveMediaUrl(
+        imageKey: event['flier_key'] as String?,
+        imageUrl: event['flier_url'] as String?,
+      ),
     );
   }
 }
@@ -487,9 +540,13 @@ class EventRegistrationContext {
     required this.registrationOpen,
     required this.closedReason,
     this.existingRegistration,
+    this.registrationNote = '',
   });
 
   final WeaEvent event;
+
+  /// The academy's own note, shown at the moment somebody is deciding.
+  final String registrationNote;
 
   /// What WEA already holds. Shown as confirmed, not asked for again.
   final Map<String, String> known;
@@ -518,6 +575,10 @@ class EventRegistrationContext {
       fields: _rows(map['fields']).map(EventRegistrationField.fromMap).toList(),
       registrationOpen: _bool(map, 'registration_open'),
       closedReason: map['closed_reason'] as String?,
+      registrationNote: _text(
+        Map<String, dynamic>.from(map['event'] as Map? ?? const {}),
+        'registration_note',
+      ),
       existingRegistration: existing == null
           ? null
           : EventRegistration.fromMap(Map<String, dynamic>.from(existing as Map)),
