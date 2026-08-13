@@ -24,6 +24,10 @@ import {
 } from './auth';
 import { num, parseJson, str } from './http';
 import {
+  FlutterwavePaymentService,
+  PaymentMethodOption,
+} from './flutterwave';
+import {
   PaymentMethodRow,
   PaymentSecrets,
   initialisePayment,
@@ -673,6 +677,30 @@ export async function findOwnedRegistration(
 // Payment
 // ---------------------------------------------------------------------------
 
+/**
+ * The payment methods this event can actually offer.
+ *
+ * Three things have to agree before a method is shown: the academy enabled it
+ * on the event, the deployment holds credentials for the processor, and the
+ * processor supports it. Anything else is omitted rather than shown greyed
+ * out — offering a method that cannot complete is worse than not offering it.
+ */
+export async function enabledPaymentMethods(
+  db: D1Database,
+  eventId: string,
+  secrets: PaymentSecrets,
+): Promise<PaymentMethodOption[]> {
+  const event = await db
+    .prepare('SELECT enabled_payment_methods FROM events WHERE id = ?1')
+    .bind(eventId)
+    .first<{ enabled_payment_methods: string }>();
+
+  const enabled = parseJson<string[]>(event?.enabled_payment_methods, []);
+  if (!Array.isArray(enabled) || enabled.length === 0) return [];
+
+  return FlutterwavePaymentService.from(secrets).getPaymentMethods(enabled);
+}
+
 async function paymentMethodFor(
   db: D1Database,
   methodId: unknown,
@@ -696,11 +724,26 @@ export async function beginEventPayment(
   registration: Record<string, unknown>,
   secrets: PaymentSecrets,
   returnUrl: string,
+  methodKey?: string,
 ): Promise<EventResult> {
   const amount = num(registration.amount) ?? 0;
   if (amount <= 0) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
   if (str(registration.payment_status) === 'PAID') {
     return { ok: false, code: 'ALREADY_PAID' };
+  }
+
+  // A method the payer names must be one this event actually offers. Taking
+  // it from the request unchecked would let anybody charge through a method
+  // the academy has deliberately turned off.
+  if (str(methodKey) !== '') {
+    const offered = await enabledPaymentMethods(
+      db,
+      str(registration.event_id),
+      secrets,
+    );
+    if (!offered.some((option) => option.key === methodKey)) {
+      return { ok: false, code: 'UNSUPPORTED_PAYMENT_METHOD' };
+    }
   }
 
   const method = await paymentMethodFor(db, registration.payment_method_id);
@@ -716,6 +759,8 @@ export async function beginEventPayment(
     phone: str(registration.phone),
     description: `WEA event registration ${str(registration.reference)}`,
     returnUrl,
+    methodKey: str(methodKey) || undefined,
+    customerId: str(registration.provider_customer_id) || undefined,
   });
 
   if (!result.ok) {
@@ -726,8 +771,9 @@ export async function beginEventPayment(
     .prepare(
       `INSERT INTO event_payments
          (id, registration_id, event_id, provider, provider_reference,
-          provider_transaction_id, checkout_url, amount, currency, status)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+          provider_transaction_id, checkout_url, amount, currency, status,
+          payment_method_key, next_action)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
     )
     .bind(
       `evtpay-${newId()}`,
@@ -740,8 +786,21 @@ export async function beginEventPayment(
       amount,
       str(registration.currency) || 'NGN',
       result.checkoutUrl ? 'PROCESSING' : 'PENDING',
+      str(methodKey),
+      // Transfer details or a USSD string, for the payer to act on. No card
+      // data exists on this path, so none can appear here.
+      JSON.stringify(result.nextAction ?? {}),
     )
     .run();
+
+  // Remembering the processor's customer stops a second one being created for
+  // somebody who returns to pay after a failed attempt.
+  if (result.customerId) {
+    await db
+      .prepare('UPDATE event_registrations SET provider_customer_id = ?1 WHERE id = ?2')
+      .bind(result.customerId, registration.id)
+      .run();
+  }
 
   await db
     .prepare(
@@ -764,6 +823,9 @@ export async function beginEventPayment(
       payment_reference: reference,
       checkout_url: result.checkoutUrl ?? null,
       instructions: result.instructions ?? str(method?.instructions),
+      // What a direct-charge method needs the payer to do next.
+      next_action: result.nextAction ?? {},
+      payment_method: str(methodKey),
       amount,
       currency: str(registration.currency) || 'NGN',
     },

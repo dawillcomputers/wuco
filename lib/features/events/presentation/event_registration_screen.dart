@@ -14,6 +14,7 @@ import '../application/events_providers.dart';
 import '../data/events_repository.dart';
 import '../domain/event_models.dart';
 import 'widgets/event_widgets.dart';
+import 'widgets/payment_method_selector.dart';
 
 /// Registering for an event.
 ///
@@ -61,6 +62,10 @@ class _EventRegistrationScreenState
 
   /// Set when completing the registration created a WEA account. Shown once.
   String? _temporaryPassword;
+
+  /// The method the payer chose. Validated again by the API, which will not
+  /// accept one the event does not offer.
+  String? _method;
 
   static const _steps = ['Information', 'Details', 'Review', 'Payment'];
 
@@ -165,7 +170,7 @@ class _EventRegistrationScreenState
     try {
       final intent = await ref
           .read(eventActionsProvider)
-          .beginPayment(registration.reference);
+          .beginPayment(registration.reference, methodKey: _method);
       if (!mounted) return;
       setState(() {
         _intent = intent;
@@ -607,6 +612,26 @@ class _EventRegistrationScreenState
             style: theme.textTheme.bodySmall,
           ),
         ],
+        if (intent == null) ...[
+          const SizedBox(height: WEAInsets.lg),
+          // The choices come from the server, which knows what the academy
+          // enabled and what the processor can actually take.
+          ref
+              .watch(eventPaymentMethodsProvider(widget.slug))
+              .when(
+                loading: () => const Padding(
+                  padding: EdgeInsets.symmetric(vertical: WEAInsets.lg),
+                  child: LinearProgressIndicator(),
+                ),
+                error: (_, _) => const SizedBox.shrink(),
+                data: (options) => PaymentMethodSelector(
+                  methods: options.methods,
+                  selected: _method,
+                  environment: options.environment,
+                  onSelected: (key) => setState(() => _method = key),
+                ),
+              ),
+        ],
         const SizedBox(height: WEAInsets.xl),
         if (intent == null)
           SizedBox(
@@ -614,7 +639,7 @@ class _EventRegistrationScreenState
             child: ElevatedButton(
               onPressed: _busy ? null : _pay,
               child: Text(
-                _busy ? 'PREPARING PAYMENT…' : 'PAY AND COMPLETE REGISTRATION',
+                _busy ? 'PREPARING PAYMENT…' : 'CONTINUE TO PAYMENT',
               ),
             ),
           )

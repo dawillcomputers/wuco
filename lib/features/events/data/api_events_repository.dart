@@ -177,14 +177,23 @@ class ApiEventsRepository
   }
 
   @override
-  Future<EventPaymentIntent> beginPayment(String reference) async =>
-      EventPaymentIntent.fromMap(
-        await _send(
-          'POST',
-          '/api/events/registrations/$reference/payment',
-          reference: reference,
-        ),
+  Future<EventPaymentOptions> paymentMethods(String slug) async =>
+      EventPaymentOptions.fromMap(
+        await _send('GET', '/api/events/$slug/payment-methods'),
       );
+
+  @override
+  Future<EventPaymentIntent> beginPayment(
+    String reference, {
+    String? methodKey,
+  }) async => EventPaymentIntent.fromMap(
+    await _send(
+      'POST',
+      '/api/events/registrations/$reference/payment',
+      body: {'payment_method': methodKey ?? ''},
+      reference: reference,
+    ),
+  );
 
   @override
   Future<EventPaymentOutcome> verifyPayment(

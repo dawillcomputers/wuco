@@ -16,8 +16,10 @@ export type Role =
   | 'APPLICANT'
   | 'LEARNER'
   | 'LECTURER'
+  | 'EVENT_MANAGER'
   | 'ADMIN'
   | 'SUPER_ADMIN'
+  | 'OWNER'
   | 'PROFESSIONAL_MEMBER';
 
 export type Status =
@@ -34,8 +36,10 @@ export const ALL_ROLES: Role[] = [
   'APPLICANT',
   'LEARNER',
   'LECTURER',
+  'EVENT_MANAGER',
   'ADMIN',
   'SUPER_ADMIN',
+  'OWNER',
   'PROFESSIONAL_MEMBER',
 ];
 
@@ -166,9 +170,21 @@ export function isExpired(iso: string): boolean {
   return new Date(iso).getTime() <= Date.now();
 }
 
+/**
+ * Which areas a role may reach.
+ *
+ * An owner reaches everything by definition. Everything else is listed rather
+ * than inferred, so a new role gains access only where it was written down.
+ */
 export function canAccessRoute(role: Role, route: string): boolean {
+  if (role === 'OWNER') return true;
   if (route.startsWith('/super-admin')) return role === 'SUPER_ADMIN';
-  if (route.startsWith('/admin')) return role === 'ADMIN' || role === 'SUPER_ADMIN';
+  if (route.startsWith('/events/manage')) {
+    return role === 'EVENT_MANAGER' || role === 'ADMIN' || role === 'SUPER_ADMIN';
+  }
+  if (route.startsWith('/admin')) {
+    return role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'EVENT_MANAGER';
+  }
   if (route.startsWith('/lecturer')) return role === 'LECTURER' || role === 'SUPER_ADMIN';
   if (route.startsWith('/learner')) return role === 'LEARNER' || role === 'SUPER_ADMIN';
   return true;

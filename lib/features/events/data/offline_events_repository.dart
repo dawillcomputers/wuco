@@ -188,7 +188,16 @@ class OfflineEventsRepository
       (throw const EventFailure(EventFailureKind.notFound));
 
   @override
-  Future<EventPaymentIntent> beginPayment(String reference) async {
+  Future<EventPaymentOptions> paymentMethods(String slug) async =>
+      // Nothing is configured offline, so nothing is offered. Listing methods
+      // that cannot complete would be the exact mistake the live path avoids.
+      const EventPaymentOptions(methods: [], environment: 'SANDBOX');
+
+  @override
+  Future<EventPaymentIntent> beginPayment(
+    String reference, {
+    String? methodKey,
+  }) async {
     final registration = _registration(reference);
     return EventPaymentIntent(
       provider: 'MANUAL',

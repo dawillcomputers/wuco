@@ -290,6 +290,7 @@ export const RESOURCES: ResourceSpec[] = [
       number('fee_amount'),
       text('fee_currency'),
       nullable('payment_method_id'),
+      jsonField('enabled_payment_methods'),
       text('payment_instructions'),
       text('contact_email'),
       text('contact_phone'),

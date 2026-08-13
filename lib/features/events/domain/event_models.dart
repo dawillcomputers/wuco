@@ -693,6 +693,57 @@ class MyEventRegistration {
       );
 }
 
+/// A way to pay that this event can actually take.
+///
+/// Reported by the API, never assembled by the client: whether a method works
+/// depends on the academy's configuration and the processor's account, and
+/// neither is knowable here.
+class EventPaymentMethod {
+  const EventPaymentMethod({
+    required this.key,
+    required this.label,
+    required this.description,
+    required this.flow,
+  });
+
+  final String key;
+  final String label;
+  final String description;
+
+  /// `redirect` sends the payer to the processor; `directCharge` returns
+  /// instructions to follow, such as an account to transfer to.
+  final String flow;
+
+  bool get isRedirect => flow == 'redirect';
+
+  factory EventPaymentMethod.fromMap(Map<String, dynamic> map) =>
+      EventPaymentMethod(
+        key: _text(map, 'key'),
+        label: _text(map, 'label'),
+        description: _text(map, 'description'),
+        flow: _text(map, 'flow'),
+      );
+}
+
+/// The methods offered for one event, and which environment they run in.
+class EventPaymentOptions {
+  const EventPaymentOptions({required this.methods, required this.environment});
+
+  final List<EventPaymentMethod> methods;
+
+  /// `SANDBOX` or `PRODUCTION`. Shown so a test payment is never mistaken
+  /// for a real one.
+  final String environment;
+
+  bool get isSandbox => environment.toUpperCase() == 'SANDBOX';
+
+  factory EventPaymentOptions.fromMap(Map<String, dynamic> map) =>
+      EventPaymentOptions(
+        methods: _rows(map['methods']).map(EventPaymentMethod.fromMap).toList(),
+        environment: _text(map, 'environment'),
+      );
+}
+
 /// What the API says to do next in order to pay.
 ///
 /// Either there is a checkout to send the payer to, or there are instructions

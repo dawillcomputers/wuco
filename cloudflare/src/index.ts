@@ -44,8 +44,17 @@ import {
   shareLinkPerformance,
   siteAnalytics,
 } from './analytics';
+import { FlutterwavePaymentService } from './flutterwave';
+import {
+  Permission,
+  Role as PermissionRole,
+  can,
+  canGrantRole,
+  permissionsFor,
+} from './permissions';
 import {
   beginEventPayment,
+  enabledPaymentMethods,
   eventOverview,
   eventRegistrationContext,
   exportEventRegistrations,
@@ -104,13 +113,21 @@ export interface Env {
   /** Public site origin, used to build share links and payment return URLs. */
   PUBLIC_SITE_URL?: string;
 
-  // Payment processor credentials. Secrets, set with `wrangler secret put`.
-  // A processor with no key here is never offered to a payer, so an
-  // unconfigured deployment falls back to the academy's own instructions
-  // rather than sending anybody to a checkout that cannot work.
+  // Payment processor credentials. Secrets, set with `wrangler secret put`,
+  // and never sent to a client. A processor with no credentials is never
+  // offered to a payer, so an unconfigured deployment falls back to the
+  // academy's own instructions rather than to a checkout that cannot work.
+  //
+  // Flutterwave V4 authenticates with an OAuth client pair. FLW_ENVIRONMENT
+  // defaults to SANDBOX, and PRODUCTION additionally requires FLW_V4_BASE_URL
+  // — there is no compiled-in production host, so a half-configured
+  // deployment fails loudly instead of charging real cards.
+  FLW_ENVIRONMENT?: string;
+  FLW_V4_BASE_URL?: string;
+  FLW_CLIENT_ID?: string;
+  FLW_CLIENT_SECRET?: string;
+  FLW_WEBHOOK_SECRET?: string;
   PAYSTACK_SECRET_KEY?: string;
-  FLUTTERWAVE_SECRET_KEY?: string;
-  FLUTTERWAVE_WEBHOOK_HASH?: string;
 
   // OAuth client ids for social sign-in. Not secrets — they are public by
   // design — but a provider without one is not offered.
@@ -162,6 +179,10 @@ function toProfile(row: UserRow) {
     country: row.country,
     avatar_url: row.avatar_url,
     role: row.role,
+    // What this account may do, so the interface can hide what it cannot
+    // reach. Convenience only — every one of these is checked again by the
+    // API, which is where the decision actually lives.
+    permissions: permissionsFor(row.role as PermissionRole),
     status: row.status,
     email_verified: row.email_verified === 1,
     must_change_password: row.must_change_password === 1,
@@ -288,11 +309,26 @@ async function setPassword(env: Env, userId: string, password: string) {
 const devToken = (env: Env, token?: string) =>
   env.EXPOSE_AUTH_TOKENS === 'true' ? (token ?? null) : null;
 
+/**
+ * Whether the database refused a write because it would leave WEA ownerless.
+ *
+ * The rule is a trigger rather than a check in this file, so it holds however
+ * the row is touched — including by hand. This only turns its refusal into an
+ * answer a client can act on.
+ */
+const isLastOwnerRefusal = (error: unknown) => `${error}`.includes('LAST_OWNER');
+
+const LAST_OWNER_MESSAGE =
+  'WEA must always have at least one owner. Appoint another owner first.';
+
 /** Processor credentials, gathered in one place so nothing else reads them. */
 const paymentSecrets = (env: Env) => ({
+  FLW_ENVIRONMENT: env.FLW_ENVIRONMENT,
+  FLW_V4_BASE_URL: env.FLW_V4_BASE_URL,
+  FLW_CLIENT_ID: env.FLW_CLIENT_ID,
+  FLW_CLIENT_SECRET: env.FLW_CLIENT_SECRET,
+  FLW_WEBHOOK_SECRET: env.FLW_WEBHOOK_SECRET,
   PAYSTACK_SECRET_KEY: env.PAYSTACK_SECRET_KEY,
-  FLUTTERWAVE_SECRET_KEY: env.FLUTTERWAVE_SECRET_KEY,
-  FLUTTERWAVE_WEBHOOK_HASH: env.FLUTTERWAVE_WEBHOOK_HASH,
 });
 
 /**
@@ -526,6 +562,44 @@ export default {
       if (method === 'GET' && path === '/api/events') {
         return json(
           { events: await listEvents(env.WEA_DB, url.searchParams) },
+          200,
+          allowed,
+        );
+      }
+
+      /**
+       * The payment methods this event can actually take.
+       *
+       * Computed on the server from three things that must agree: what the
+       * academy enabled on the event, what credentials this deployment holds,
+       * and what the processor supports. The client renders the answer and
+       * never decides it — and no credential is part of the response.
+       */
+      const methodsMatch = path.match(/^\/api\/events\/([^/]+)\/payment-methods$/);
+      if (method === 'GET' && methodsMatch) {
+        const event = await env.WEA_DB.prepare(
+          'SELECT id FROM events WHERE id = ?1 OR slug = ?1',
+        )
+          .bind(decodeURIComponent(methodsMatch[1]))
+          .first<{ id: string }>();
+        if (!event) return fail('NOT_FOUND', 404, allowed);
+
+        const methods = await enabledPaymentMethods(
+          env.WEA_DB,
+          event.id,
+          paymentSecrets(env),
+        );
+        return json(
+          {
+            methods: methods.map((option) => ({
+              key: option.key,
+              label: option.label,
+              description: option.description,
+              flow: option.flow,
+            })),
+            // Lets the interface say plainly that this is not live money.
+            environment: FlutterwavePaymentService.from(paymentSecrets(env)).environment,
+          },
           200,
           allowed,
         );
@@ -977,6 +1051,7 @@ export default {
           registration,
           paymentSecrets(env),
           `${site.replace(/\/$/, '')}/events/registration/${registration.reference}`,
+          str((await readJson(request)).payment_method),
         );
         if (!result.ok) {
           return fail(result.code!, result.code === 'ALREADY_PAID' ? 409 : 400, allowed, result.message);
@@ -1263,7 +1338,11 @@ export default {
       if (path === '/api/enrolments') {
         if (method === 'GET') {
           const requested = url.searchParams.get('user_id');
-          if (requested && requested !== actor.id && actor.role !== 'SUPER_ADMIN') {
+          if (
+            requested &&
+            requested !== actor.id &&
+            !can({ id: actor.id, role: actor.role as PermissionRole }, 'user.write')
+          ) {
             return fail('NOT_AUTHORISED', 403, allowed);
           }
           const rows = await env.WEA_DB.prepare(
@@ -1278,7 +1357,10 @@ export default {
           const targetUser = str(body.user_id) || actor.id;
           const waive = body.waive_payment === true;
           // Waiving payment, or enrolling somebody else, is a Super Admin act.
-          if ((waive || targetUser !== actor.id) && actor.role !== 'SUPER_ADMIN') {
+          if (
+            (waive || targetUser !== actor.id) &&
+            !can({ id: actor.id, role: actor.role as PermissionRole }, 'user.write')
+          ) {
             return fail('NOT_AUTHORISED', 403, allowed);
           }
           const programmeId = str(body.programme_id);
@@ -1313,7 +1395,17 @@ export default {
       // --- Super Admin -----------------------------------------------------
 
       if (path.startsWith('/api/admin/')) {
-        if (actor.role !== 'SUPER_ADMIN') {
+        // A permission, not a role: adding a role must not silently widen or
+        // narrow what the administration surface accepts.
+        const holder = { id: actor.id, role: actor.role as PermissionRole };
+        const allow = (permission: Permission) => can(holder, permission);
+
+        if (!allow('catalogue.read') && !allow('event.read')) {
+          return fail('NOT_AUTHORISED', 403, allowed);
+        }
+        // Everything below is administration; a learner or applicant whose
+        // role happens to carry a read permission has no business here.
+        if (!allow('catalogue.write') && !allow('event.registrant.read')) {
           return fail('NOT_AUTHORISED', 403, allowed);
         }
 
@@ -1786,7 +1878,19 @@ export default {
               return fail('NOT_AUTHORISED', 400, allowed,
                 'You cannot delete the account you are signed in with.');
             }
-            await env.WEA_DB.prepare('DELETE FROM users WHERE id = ?1').bind(targetId).run();
+            try {
+              await env.WEA_DB.prepare('DELETE FROM users WHERE id = ?1')
+                .bind(targetId)
+                .run();
+            } catch (error) {
+              // The database refuses to leave WEA with no owner. Reported as
+              // a conflict rather than a server error, because the request was
+              // understood and deliberately declined.
+              if (isLastOwnerRefusal(error)) {
+                return fail('LAST_OWNER', 409, allowed, LAST_OWNER_MESSAGE);
+              }
+              throw error;
+            }
             await audit(env, actor.id, 'DELETE_USER', targetId);
             return json({ ok: true }, 200, allowed);
           }
@@ -1795,15 +1899,39 @@ export default {
             const role = str(body.role) as Role;
             const status = str(body.status) as Status;
             if (role && !ALL_ROLES.includes(role)) return fail('INVALID_ROLE', 400, allowed);
-            await env.WEA_DB.prepare(
-              `UPDATE users
-                 SET role = COALESCE(?1, role),
-                     status = COALESCE(?2, status),
-                     updated_at = CURRENT_TIMESTAMP
-               WHERE id = ?3`,
-            )
-              .bind(role || null, status || null, targetId)
-              .run();
+
+            // Only an owner may hand out administrative authority. Refused
+            // outright rather than quietly downgraded, so a mistake is seen.
+            if (
+              role &&
+              !canGrantRole(
+                { id: actor.id, role: actor.role as PermissionRole },
+                role as PermissionRole,
+              )
+            ) {
+              return fail(
+                'NOT_AUTHORISED',
+                403,
+                allowed,
+                'Only an owner may grant administrative roles.',
+              );
+            }
+            try {
+              await env.WEA_DB.prepare(
+                `UPDATE users
+                   SET role = COALESCE(?1, role),
+                       status = COALESCE(?2, status),
+                       updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?3`,
+              )
+                .bind(role || null, status || null, targetId)
+                .run();
+            } catch (error) {
+              if (isLastOwnerRefusal(error)) {
+                return fail('LAST_OWNER', 409, allowed, LAST_OWNER_MESSAGE);
+              }
+              throw error;
+            }
             await audit(env, actor.id, 'UPDATE_USER', targetId, `${role || ''} ${status || ''}`.trim());
             const row = await findUserById(env, targetId);
             if (!row) return fail('NOT_FOUND', 404, allowed);

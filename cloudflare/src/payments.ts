@@ -15,16 +15,30 @@
  *      treated as a hint that it is worth checking, and nothing more.
  */
 
+import {
+  FlutterwavePaymentService,
+  readWebhookEvent,
+  resolveConfig,
+} from './flutterwave';
 import { str } from './http';
 
 export type ProviderName = 'FLUTTERWAVE' | 'PAYSTACK' | 'MANUAL';
 
 export type PaymentOutcome = 'PENDING' | 'PROCESSING' | 'PAID' | 'FAILED' | 'CANCELLED';
 
-/** Secrets live in the Worker environment; they are never sent to a client. */
+/**
+ * Secrets live in the Worker environment; they are never sent to a client.
+ *
+ * Flutterwave V4 authenticates with an OAuth client pair rather than a static
+ * secret key, and its base URL is configuration because the published V4
+ * specification documents only the sandbox host.
+ */
 export interface PaymentSecrets {
-  FLUTTERWAVE_SECRET_KEY?: string;
-  FLUTTERWAVE_WEBHOOK_HASH?: string;
+  FLW_ENVIRONMENT?: string;
+  FLW_V4_BASE_URL?: string;
+  FLW_CLIENT_ID?: string;
+  FLW_CLIENT_SECRET?: string;
+  FLW_WEBHOOK_SECRET?: string;
   PAYSTACK_SECRET_KEY?: string;
 }
 
@@ -51,6 +65,10 @@ export interface InitialiseInput {
   description: string;
   /** Where the processor should send the payer once they are done. */
   returnUrl: string;
+  /** Which method the payer chose, where the provider offers a choice. */
+  methodKey?: string;
+  /** Reused where WEA already knows this payer at the processor. */
+  customerId?: string;
 }
 
 export interface InitialiseResult {
@@ -60,6 +78,13 @@ export interface InitialiseResult {
   transactionId?: string;
   /** Shown to the payer when there is no checkout to redirect to. */
   instructions?: string;
+  /**
+   * What a direct-charge method needs the payer to do — a virtual account to
+   * transfer to, a USSD string to dial. Passed through untouched. Contains no
+   * card detail, because no card detail exists on this path.
+   */
+  nextAction?: Record<string, unknown>;
+  customerId?: string;
   code?: string;
   message?: string;
 }
@@ -190,77 +215,74 @@ const paystack: PaymentProvider = {
 // Flutterwave
 // ---------------------------------------------------------------------------
 
+/**
+ * Flutterwave V4 (Next Gen).
+ *
+ * The V3 implementation this replaces is gone rather than deprecated: leaving
+ * two payment paths in the codebase is how the wrong one gets used.
+ */
 const flutterwave: PaymentProvider = {
   name: 'FLUTTERWAVE',
 
-  isConfigured: (secrets) => str(secrets.FLUTTERWAVE_SECRET_KEY) !== '',
+  isConfigured: (secrets) => resolveConfig(secrets).usable,
 
   async initialise(input, _method, secrets) {
-    const response = await fetch('https://api.flutterwave.com/v3/payments', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${secrets.FLUTTERWAVE_SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        tx_ref: input.reference,
-        amount: input.amount,
-        currency: input.currency,
-        redirect_url: input.returnUrl,
-        customer: {
-          email: input.email,
-          name: input.name,
-          phonenumber: input.phone,
-        },
-        customizations: { title: 'WUCO Executive Academy', description: input.description },
-      }),
+    const service = FlutterwavePaymentService.from(secrets);
+    const result = await service.createPaymentOrder({
+      reference: input.reference,
+      amount: input.amount,
+      currency: input.currency,
+      // Bank transfer is the default where the payer expressed no preference:
+      // it is the method with the widest reach and no card exposure.
+      methodKey: input.methodKey ?? 'bank_transfer',
+      email: input.email,
+      firstName: input.name.split(' ')[0] ?? '',
+      lastName: input.name.split(' ').slice(1).join(' '),
+      phone: input.phone,
+      returnUrl: input.returnUrl,
+      customerId: input.customerId,
     });
-    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    const checkoutUrl = str(dig(body, 'data', 'link'));
-    if (!response.ok || checkoutUrl === '') {
+
+    if (!result.ok) {
       return {
         ok: false,
-        code: 'PAYMENT_INITIALISATION_FAILED',
-        message: str(body.message) || 'The payment processor did not accept the request.',
+        code: result.code ?? 'PAYMENT_INITIALISATION_FAILED',
+        message: result.message,
       };
     }
-    return { ok: true, checkoutUrl };
+    return {
+      ok: true,
+      checkoutUrl: result.checkoutUrl,
+      transactionId: result.orderId,
+      customerId: result.customerId,
+      nextAction: result.nextAction,
+    };
   },
 
   async verify(reference, secrets) {
-    const response = await fetch(
-      `https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`,
-      { headers: { Authorization: `Bearer ${secrets.FLUTTERWAVE_SECRET_KEY}` } },
-    );
-    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!response.ok) {
-      // A transaction the processor has never heard of is one the payer never
-      // started; anything else is worth asking about again.
-      return {
-        status: response.status === 404 ? 'PENDING' : 'PROCESSING',
-        reason: str(body.message),
-        payload: {},
-      };
+    const service = FlutterwavePaymentService.from(secrets);
+    const result = await service.verifyPayment(reference);
+
+    if (!result.found) {
+      // Never heard of: the payer has not started, or the lookup failed. Either
+      // way this is not a failure of the payment — it stays pending.
+      return { status: 'PENDING', reason: 'Not found at the processor.', payload: {} };
     }
-    const state = str(dig(body, 'data', 'status')).toLowerCase();
+
     return {
       status:
-        state === 'successful'
+        result.status === 'completed' || result.status === 'succeeded'
           ? 'PAID'
-          : state === 'failed'
+          : result.status === 'failed'
             ? 'FAILED'
-            : state === 'cancelled'
+            : result.status === 'voided' || result.status === 'cancelled'
               ? 'CANCELLED'
               : 'PROCESSING',
-      transactionId: str(dig(body, 'data', 'id')),
-      amount: asNumber(dig(body, 'data', 'amount')),
-      currency: str(dig(body, 'data', 'currency')),
-      reason: str(dig(body, 'data', 'processor_response')),
-      payload: {
-        status: state,
-        payment_type: str(dig(body, 'data', 'payment_type')),
-        created_at: str(dig(body, 'data', 'created_at')),
-      },
+      transactionId: result.transactionId,
+      amount: result.amount,
+      currency: result.currency,
+      reason: result.status,
+      payload: result.raw,
     };
   },
 };
@@ -403,15 +425,18 @@ export async function readWebhook(
   }
 
   if (name === 'FLUTTERWAVE') {
-    const expected = str(secrets.FLUTTERWAVE_WEBHOOK_HASH);
-    const provided = request.headers.get('verif-hash') ?? '';
-    if (expected === '' || !constantTimeEqual(provided, expected)) {
-      return { ok: false, provider: 'FLUTTERWAVE', reference: '' };
-    }
+    // V4 signs the raw body: HMAC-SHA256, base64, in `flutterwave-signature`.
+    // The V3 scheme — comparing a static hash header for equality — would
+    // accept a header anybody who had seen it could replay.
+    const event = await readWebhookEvent(
+      rawBody,
+      request.headers.get('flutterwave-signature') ?? '',
+      str(secrets.FLW_WEBHOOK_SECRET),
+    );
     return {
-      ok: true,
+      ok: event.ok,
       provider: 'FLUTTERWAVE',
-      reference: str(dig(body, 'data', 'tx_ref')) || str(body.txRef),
+      reference: event.reference,
     };
   }
 

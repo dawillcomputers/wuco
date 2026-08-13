@@ -141,8 +141,11 @@ abstract interface class EventsRepository {
     EventRegistrationDraft draft,
   );
 
+  /// The payment methods this event can actually take. Decided by the server.
+  Future<EventPaymentOptions> paymentMethods(String slug);
+
   /// Starts a payment and returns either a checkout to open or instructions.
-  Future<EventPaymentIntent> beginPayment(String reference);
+  Future<EventPaymentIntent> beginPayment(String reference, {String? methodKey});
 
   /// Asks the API to confirm with the processor what actually happened.
   Future<EventPaymentOutcome> verifyPayment(

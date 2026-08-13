@@ -83,6 +83,12 @@ final eventDashboardProvider = FutureProvider.family<EventDashboard, String>(
   (ref, reference) => ref.watch(eventsRepositoryProvider).dashboard(reference),
 );
 
+/// The methods this event can take, as the server reports them.
+final eventPaymentMethodsProvider =
+    FutureProvider.family<EventPaymentOptions, String>(
+      (ref, slug) => ref.watch(eventsRepositoryProvider).paymentMethods(slug),
+    );
+
 /// Every event the signed-in account has registered for. Empty when signed out.
 final myEventRegistrationsProvider =
     FutureProvider<List<MyEventRegistration>>((ref) {
@@ -175,8 +181,11 @@ class EventActions {
     return saved;
   }
 
-  Future<EventPaymentIntent> beginPayment(String reference) async {
-    final intent = await _events.beginPayment(reference);
+  Future<EventPaymentIntent> beginPayment(
+    String reference, {
+    String? methodKey,
+  }) async {
+    final intent = await _events.beginPayment(reference, methodKey: methodKey);
     unawaitedReport(name: 'payment_started');
     return intent;
   }

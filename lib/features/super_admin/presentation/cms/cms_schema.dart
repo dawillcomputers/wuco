@@ -664,9 +664,20 @@ const cmsResources = <CmsResource>[
             'online; anything else shows your instructions instead.',
       ),
       CmsField(
+        column: 'enabled_payment_methods',
+        label: 'Payment methods offered',
+        kind: CmsFieldKind.stringList,
+        help:
+            'One per line: bank_transfer, ussd, opay, nqr, card, bank_account. '
+            'A method only appears to a payer if your Flutterwave account and '
+            'this deployment support it as well — listing it here is a '
+            'permission, not a promise.',
+      ),
+      CmsField(
         column: 'payment_instructions',
         label: 'Payment instructions',
         kind: CmsFieldKind.multiline,
+        help: 'Shown when no online method is available for this event.',
       ),
       CmsField(column: 'contact_email', label: 'Event contact email'),
       CmsField(column: 'contact_phone', label: 'Event contact phone'),
