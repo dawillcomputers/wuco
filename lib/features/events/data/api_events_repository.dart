@@ -169,7 +169,11 @@ class ApiEventsRepository
     if (resumeToken != null && resumeToken.isNotEmpty) {
       await _tokens.write(registration.reference, resumeToken);
     }
-    return SavedRegistration(registration: registration, resumeToken: resumeToken);
+    return SavedRegistration(
+      registration: registration,
+      resumeToken: resumeToken,
+      temporaryPassword: response['temporary_password'] as String?,
+    );
   }
 
   @override

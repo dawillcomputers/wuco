@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/theme/app_colors.dart';
 import '../components/wea_brand.dart';
 import '../components/wea_components.dart';
+import '../widgets/wea_selectable.dart';
 
 class WEAAppShell extends StatelessWidget {
   const WEAAppShell({super.key, required this.child});
@@ -75,7 +76,7 @@ class WEAAppShell extends StatelessWidget {
               ],
       ),
       endDrawer: _MobileNavigation(currentPath: currentPath),
-      body: child,
+      body: WEASelectable(child: child),
     );
   }
 }

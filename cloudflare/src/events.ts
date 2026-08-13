@@ -13,7 +13,15 @@
  * module has asked the processor itself and checked that the amount matches.
  */
 
-import { newId, newToken, sha256 } from './auth';
+import {
+  PBKDF2_ITERATIONS,
+  hashPassword,
+  newId,
+  newToken,
+  randomHex,
+  sha256,
+  temporaryPassword,
+} from './auth';
 import { num, parseJson, str } from './http';
 import {
   PaymentMethodRow,
@@ -92,7 +100,7 @@ export async function listEvents(db: D1Database, params: URLSearchParams) {
   const limit = Math.min(num(params.get('limit')) ?? 60, 100);
   const rows = await db
     .prepare(
-      `SELECT id, slug, title, subtitle, event_type, summary, image_key, image_url,
+      `SELECT id, slug, title, theme, subtitle, event_type, summary, image_key, image_url,
               starts_at, ends_at, timezone, venue, format, fee_amount, fee_currency,
               registration_opens_at, registration_closes_at, capacity, featured, status
          FROM events
@@ -315,6 +323,66 @@ function publicRegistration(row: Record<string, unknown>) {
   };
 }
 
+/**
+ * Gives a completed registrant a WEA account if they do not already have one.
+ *
+ * Finishing a registration *is* joining the academy — so nobody is asked to
+ * create an account first, and nobody is left without one afterwards. The
+ * account is created with a temporary password that is shown once and emailed,
+ * and flagged `must_change_password`, so it has to be replaced at first
+ * sign-in and the credential in the message stops working the moment it is
+ * used.
+ *
+ * Returns the temporary password when an account was created, and null when
+ * the person already had one — an existing account is never re-keyed by
+ * registering again.
+ */
+async function ensureAccountFor(
+  db: D1Database,
+  registration: {
+    email: string;
+    first_name: string;
+    last_name: string;
+    phone: string;
+    country: string;
+  },
+): Promise<{ userId: string; temporaryPassword: string | null }> {
+  const email = registration.email.trim().toLowerCase();
+
+  const existing = await db
+    .prepare('SELECT id FROM users WHERE email = ?1')
+    .bind(email)
+    .first<{ id: string }>();
+  if (existing) return { userId: existing.id, temporaryPassword: null };
+
+  const password = temporaryPassword();
+  const salt = randomHex(16);
+  const id = newId();
+
+  await db
+    .prepare(
+      `INSERT INTO users
+         (id, email, password_hash, password_salt, password_iterations,
+          first_name, last_name, phone, country, role, status,
+          email_verified, must_change_password)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'APPLICANT', 'ACTIVE', 1, 1)`,
+    )
+    .bind(
+      id,
+      email,
+      await hashPassword(password, salt),
+      salt,
+      PBKDF2_ITERATIONS,
+      registration.first_name,
+      registration.last_name,
+      registration.phone || null,
+      registration.country || null,
+    )
+    .run();
+
+  return { userId: id, temporaryPassword: password };
+}
+
 async function nextEventReference(db: D1Database): Promise<string> {
   const result = await db
     .prepare('INSERT INTO event_registration_sequence DEFAULT VALUES')
@@ -429,6 +497,21 @@ export async function saveEventRegistration(
     : 'STARTED';
   const paymentStatus = fee > 0 ? 'PENDING' : 'NOT_REQUIRED';
 
+  // Completing a registration is what creates the account. Done only on the
+  // final save, so somebody who abandons the form halfway is a lead rather
+  // than an account they never asked for.
+  let account: { userId: string; temporaryPassword: string | null } | null = null;
+  if (complete) {
+    account = await ensureAccountFor(db, {
+      email,
+      first_name: firstName,
+      last_name: lastName,
+      phone: str(body.phone) || str(existing?.phone),
+      country: str(body.country) || str(existing?.country),
+    });
+  }
+  const ownerId = account?.userId ?? linkedUser;
+
   if (existing) {
     // COALESCE-style merge: a step that does not mention a field must not
     // erase what an earlier step already saved.
@@ -466,7 +549,7 @@ export async function saveEventRegistration(
         str(body.job_title),
         str(body.country),
         JSON.stringify(merged),
-        linkedUser,
+        ownerId,
         status,
         paymentStatus,
         fee,
@@ -480,14 +563,21 @@ export async function saveEventRegistration(
       .prepare('SELECT * FROM event_registrations WHERE id = ?1')
       .bind(existing.id)
       .first<Record<string, unknown>>();
-    return { ok: true, data: { registration: publicRegistration(row!), resume_token: null } };
+    return {
+      ok: true,
+      data: {
+        registration: publicRegistration(row!),
+        resume_token: null,
+        temporary_password: account?.temporaryPassword ?? null,
+      },
+    };
   }
 
   const id = `evtreg-${newId()}`;
   const reference = await nextEventReference(db);
   // Guests get a token so they can come back to their own registration. Only
   // its digest is stored, exactly as for a session.
-  const resumeToken = actor ? null : newToken();
+  const resumeToken = actor || account?.userId ? null : newToken();
 
   await db
     .prepare(
@@ -503,7 +593,7 @@ export async function saveEventRegistration(
       id,
       reference,
       event.id,
-      linkedUser,
+      ownerId,
       firstName,
       lastName,
       email,
@@ -531,7 +621,11 @@ export async function saveEventRegistration(
     .first<Record<string, unknown>>();
   return {
     ok: true,
-    data: { registration: publicRegistration(row!), resume_token: resumeToken },
+    data: {
+      registration: publicRegistration(row!),
+      resume_token: resumeToken,
+      temporary_password: account?.temporaryPassword ?? null,
+    },
   };
 }
 

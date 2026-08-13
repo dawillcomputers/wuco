@@ -11,7 +11,10 @@ enum CmsFieldKind {
   status,
   image,
   stringList,
+  /// A calendar date, stored as `YYYY-MM-DD`.
   date,
+  /// A date and a time, stored as `YYYY-MM-DDTHH:MM:SS`.
+  dateTime,
   select,
   /// A reference to another resource, chosen from a dropdown.
   reference,
@@ -25,6 +28,7 @@ class CmsField {
     this.help = '',
     this.required = false,
     this.options = const [],
+    this.optionLabels = const {},
     this.referenceResource,
     this.referenceLabelColumn = 'title',
   });
@@ -35,6 +39,13 @@ class CmsField {
   final String help;
   final bool required;
   final List<String> options;
+
+  /// How a stored value should read in the dropdown, where the two differ.
+  /// The database keeps `PHYSICAL`; an operator should see "Walk-in".
+  final Map<String, String> optionLabels;
+
+  /// The wording for one option, falling back to the value itself.
+  String labelFor(String option) => optionLabels[option] ?? option;
 
   /// For [CmsFieldKind.reference]: the resource whose rows populate the list.
   final String? referenceResource;
@@ -376,10 +387,13 @@ const cmsResources = <CmsResource>[
       CmsField(
         column: 'starts_at',
         label: 'Starts',
-        kind: CmsFieldKind.date,
-        help: 'ISO date and time, e.g. 2026-09-14T14:00:00Z',
+        kind: CmsFieldKind.dateTime,
       ),
-      CmsField(column: 'ends_at', label: 'Ends', kind: CmsFieldKind.date),
+      CmsField(
+        column: 'ends_at',
+        label: 'Ends',
+        kind: CmsFieldKind.dateTime,
+      ),
       CmsField(column: 'timezone', label: 'Timezone'),
       CmsField(column: 'mode', label: 'Mode'),
       CmsField(column: 'location', label: 'Location'),
@@ -487,6 +501,13 @@ const cmsResources = <CmsResource>[
         'registrant.',
     fields: [
       CmsField(column: 'title', label: 'Title', required: true),
+      CmsField(
+        column: 'theme',
+        label: 'Theme',
+        help:
+            'The line the event is convened around, e.g. "Financing Africa\'s '
+            'next decade of trade". Shown under the title.',
+      ),
       CmsField(column: 'subtitle', label: 'Subtitle'),
       CmsField(
         column: 'event_type',
@@ -588,27 +609,37 @@ const cmsResources = <CmsResource>[
       CmsField(
         column: 'starts_at',
         label: 'Starts',
-        kind: CmsFieldKind.date,
-        help: 'ISO date and time, e.g. 2026-09-25T09:00:00',
+        kind: CmsFieldKind.dateTime,
       ),
-      CmsField(column: 'ends_at', label: 'Ends', kind: CmsFieldKind.date),
+      CmsField(
+        column: 'ends_at',
+        label: 'Ends',
+        kind: CmsFieldKind.dateTime,
+      ),
       CmsField(column: 'timezone', label: 'Timezone'),
       CmsField(column: 'venue', label: 'Venue'),
       CmsField(
         column: 'format',
-        label: 'Format',
+        label: 'How to attend',
         kind: CmsFieldKind.select,
-        options: ['ONLINE', 'PHYSICAL', 'HYBRID'],
+        // The stored values are fixed by a CHECK constraint on the table;
+        // only the wording changes here. PHYSICAL is walk-in.
+        options: ['PHYSICAL', 'ONLINE', 'HYBRID'],
+        optionLabels: {
+          'PHYSICAL': 'Walk-in',
+          'ONLINE': 'Online',
+          'HYBRID': 'Hybrid',
+        },
       ),
       CmsField(
         column: 'registration_opens_at',
         label: 'Registration opens',
-        kind: CmsFieldKind.date,
+        kind: CmsFieldKind.dateTime,
       ),
       CmsField(
         column: 'registration_closes_at',
         label: 'Registration closes',
-        kind: CmsFieldKind.date,
+        kind: CmsFieldKind.dateTime,
       ),
       CmsField(
         column: 'capacity',
@@ -659,6 +690,9 @@ const cmsResources = <CmsResource>[
         column: 'featured',
         label: 'Featured',
         kind: CmsFieldKind.toggle,
+        help:
+            'Marks this as a flagship event so it can be pulled out ahead of '
+            'the rest. The events calendar does not treat it differently yet.',
       ),
       CmsField(
         column: 'status',
@@ -802,8 +836,16 @@ const cmsResources = <CmsResource>[
         kind: CmsFieldKind.select,
         options: ['LIVE', 'KEYNOTE', 'PANEL', 'WORKSHOP', 'BRIEFING'],
       ),
-      CmsField(column: 'starts_at', label: 'Starts', kind: CmsFieldKind.date),
-      CmsField(column: 'ends_at', label: 'Ends', kind: CmsFieldKind.date),
+      CmsField(
+        column: 'starts_at',
+        label: 'Starts',
+        kind: CmsFieldKind.dateTime,
+      ),
+      CmsField(
+        column: 'ends_at',
+        label: 'Ends',
+        kind: CmsFieldKind.dateTime,
+      ),
       CmsField(column: 'timezone', label: 'Timezone'),
       CmsField(
         column: 'room_name',

@@ -13,5 +13,8 @@ class WEAApp extends ConsumerWidget {
     debugShowCheckedModeBanner: false,
     theme: WEAAppTheme.light(),
     routerConfig: ref.watch(routerProvider),
+    // Text selection is applied by the page shells rather than here: a
+    // SelectionArea at this level sits above the Navigator, and it needs an
+    // Overlay ancestor to place its handles. See WEASelectableText.
   );
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -57,6 +58,9 @@ class _EventRegistrationScreenState
   String? _error;
   EventRegistration? _registration;
   EventPaymentIntent? _intent;
+
+  /// Set when completing the registration created a WEA account. Shown once.
+  String? _temporaryPassword;
 
   static const _steps = ['Information', 'Details', 'Review', 'Payment'];
 
@@ -136,6 +140,9 @@ class _EventRegistrationScreenState
       if (!mounted) return;
       setState(() {
         _registration = saved.registration;
+        // Shown once, on this screen only. It is also emailed, and it stops
+        // working the moment they choose their own password.
+        _temporaryPassword = saved.temporaryPassword ?? _temporaryPassword;
         _busy = false;
         _step = next;
       });
@@ -508,8 +515,15 @@ class _EventRegistrationScreenState
           onBack: () => setState(() => _step = 1),
           onNext: _accepted
               ? () async {
-                  await _saveAndAdvance(complete: true, next: paid ? 3 : 3);
-                  if (!paid && mounted && _error == null) _goToRegistration();
+                  await _saveAndAdvance(complete: true, next: 3);
+                  // A free event would normally go straight to the dashboard,
+                  // but not past a temporary password shown only once.
+                  if (!paid &&
+                      mounted &&
+                      _error == null &&
+                      _temporaryPassword == null) {
+                    _goToRegistration();
+                  }
                 }
               : null,
         ),
@@ -535,6 +549,13 @@ class _EventRegistrationScreenState
           'received and verified.',
           style: theme.textTheme.bodyMedium,
         ),
+        if (_temporaryPassword != null) ...[
+          const SizedBox(height: WEAInsets.lg),
+          _AccountCreatedPanel(
+            email: _registration?.email ?? _email.text.trim(),
+            password: _temporaryPassword!,
+          ),
+        ],
         const SizedBox(height: WEAInsets.lg),
         Container(
           padding: const EdgeInsets.all(WEAInsets.lg),
@@ -722,6 +743,127 @@ class _CustomField extends StatelessWidget {
                   (input ?? '').trim().isEmpty ? 'This is required.' : null
             : null,
         onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+/// The credentials created by completing a registration.
+///
+/// Shown here once and emailed at the same time, because a password that only
+/// exists in a message nobody has received yet is a support call waiting to
+/// happen. It is a temporary one: the account is flagged so it must be
+/// replaced at first sign-in, and this value stops working then.
+class _AccountCreatedPanel extends StatelessWidget {
+  const _AccountCreatedPanel({required this.email, required this.password});
+
+  final String email;
+  final String password;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(WEAInsets.lg),
+      decoration: BoxDecoration(
+        color: WEAColors.success.withValues(alpha: .07),
+        border: Border.all(color: WEAColors.success.withValues(alpha: .32)),
+        borderRadius: BorderRadius.circular(WEAInsets.radius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.verified_user_outlined,
+                size: 20,
+                color: WEAColors.success,
+              ),
+              const SizedBox(width: WEAInsets.xs),
+              Text(
+                'Your WEA account is ready',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: WEAColors.success,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: WEAInsets.xs),
+          Text(
+            'Registering created your account, so next time everything is '
+            'filled in for you. We have emailed these details as well.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: WEAInsets.md),
+          _Credential(label: 'Email', value: email),
+          _Credential(label: 'Temporary password', value: password),
+          const SizedBox(height: WEAInsets.xs),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'You will choose your own password the first time you sign in.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: password));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        backgroundColor: WEAColors.navy,
+                        content: Text('Temporary password copied.'),
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.copy_outlined, size: 16),
+                label: const Text('COPY'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Credential extends StatelessWidget {
+  const _Credential({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: WEAInsets.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 150,
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: WEAColors.mutedText,
+              ),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              value,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -55,14 +55,18 @@ enum EventFormat {
   hybrid;
 
   static EventFormat parse(String value) => switch (value.toUpperCase()) {
-    'PHYSICAL' => EventFormat.physical,
+    // WALK_IN is accepted as well, so the vocabulary can move later without
+    // this becoming the thing that breaks.
+    'PHYSICAL' || 'WALK_IN' => EventFormat.physical,
     'HYBRID' => EventFormat.hybrid,
     _ => EventFormat.online,
   };
 
+  /// How the academy names it. The stored value for [physical] is still
+  /// `PHYSICAL`; walk-in is what it is called.
   String get label => switch (this) {
     EventFormat.online => 'Online',
-    EventFormat.physical => 'In person',
+    EventFormat.physical => 'Walk-in',
     EventFormat.hybrid => 'Hybrid',
   };
 
@@ -209,6 +213,7 @@ class WeaEvent {
     required this.title,
     required this.subtitle,
     required this.eventType,
+    this.theme = '',
     required this.summary,
     required this.startsAt,
     required this.endsAt,
@@ -229,6 +234,9 @@ class WeaEvent {
   final String title;
   final String subtitle;
   final String eventType;
+
+  /// The line the event is convened around, shown beneath the title.
+  final String theme;
   final String summary;
   final DateTime? startsAt;
   final DateTime? endsAt;
@@ -257,6 +265,7 @@ class WeaEvent {
     title: _text(map, 'title'),
     subtitle: _text(map, 'subtitle'),
     eventType: _text(map, 'event_type'),
+    theme: _text(map, 'theme'),
     summary: _text(map, 'summary'),
     startsAt: _date(map, 'starts_at'),
     endsAt: _date(map, 'ends_at'),

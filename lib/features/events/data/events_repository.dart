@@ -108,9 +108,18 @@ class EventRegistrationDraft {
 
 /// A saved registration, with the token a guest needs to return to it.
 class SavedRegistration {
-  const SavedRegistration({required this.registration, this.resumeToken});
+  const SavedRegistration({
+    required this.registration,
+    this.resumeToken,
+    this.temporaryPassword,
+  });
 
   final EventRegistration registration;
+
+  /// Issued once, when completing the registration created a WEA account for
+  /// somebody who did not have one. Shown to them and emailed, and it stops
+  /// working as soon as they choose their own.
+  final String? temporaryPassword;
 
   /// Issued once, when a guest registration is created. Held by the client so
   /// the registrant can come back to their own registration without an account.

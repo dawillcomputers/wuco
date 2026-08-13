@@ -40,6 +40,9 @@ export interface Recipient {
 
 export type EmailTemplate =
   | 'welcome'
+  | 'account_created'
+  | 'password_reset'
+  | 'password_reset_by_office'
   | 'event_registration_received'
   | 'event_payment_receipt'
   | 'event_payment_failed'
@@ -253,6 +256,59 @@ function build(
         action: { label: 'EXPLORE PROGRAMMES', url: `${site}/programmes` },
         outro:
           'If you did not create this account, please tell the academy office and we will remove it.',
+      };
+
+    case 'account_created':
+      return {
+        subject: 'Your WUCO Executive Academy account',
+        heading: `Welcome, ${name}.`,
+        intro:
+          'Registering has created your WEA account, so everything you have '
+          + 'told us is reused next time and you never have to type it twice. '
+          + 'Sign in with the temporary password below.',
+        facts: [
+          ['Email', context.to.email],
+          ['Temporary password', data.temporary_password],
+        ],
+        action: { label: 'SIGN IN', url: `${site}/login` },
+        outro:
+          'You will be asked to choose your own password the first time you '
+          + 'sign in, and this temporary one stops working at that point. If '
+          + 'you did not register with WEA, please tell the academy office.',
+      };
+
+    case 'password_reset':
+      return {
+        subject: 'Reset your WEA password',
+        heading: 'Reset your password.',
+        intro:
+          'Use the link below to choose a new password. It can only be used '
+          + 'once and expires in an hour.',
+        facts: [['Account', context.to.email]],
+        action: {
+          label: 'CHOOSE A NEW PASSWORD',
+          url: `${site}/reset-password?token=${data.token}`,
+        },
+        outro:
+          'If you did not ask to reset your password you can ignore this '
+          + 'message — nothing has changed, and the link will simply expire.',
+      };
+
+    case 'password_reset_by_office':
+      return {
+        subject: 'Your WEA password has been reset',
+        heading: 'Your password has been reset.',
+        intro:
+          'The academy office has issued you a temporary password. Sign in '
+          + 'with it and you will be asked to choose your own.',
+        facts: [
+          ['Email', context.to.email],
+          ['Temporary password', data.temporary_password],
+        ],
+        action: { label: 'SIGN IN', url: `${site}/login` },
+        outro:
+          'If you did not ask for this, tell the academy office at once — '
+          + 'somebody has requested a reset on your account.',
       };
 
     case 'event_registration_received':

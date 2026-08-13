@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../app/theme/app_colors.dart';
+import '../../../../shared/widgets/wea_selectable.dart';
 import 'learner_header.dart';
 import 'learner_sidebar.dart';
 
@@ -51,29 +52,31 @@ class LearnerShell extends ConsumerWidget {
               ),
             )
           : null,
-      body: SafeArea(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (!useDrawer)
-              LearnerSidebar(location: location, collapsed: collapsed),
-            Expanded(
-              child: Column(
-                children: [
-                  Builder(
-                    builder: (headerContext) => LearnerHeader(
-                      location: location,
-                      showMenuButton: useDrawer,
-                      showBrand: useDrawer,
-                      onMenuPressed: () =>
-                          Scaffold.of(headerContext).openDrawer(),
+      body: WEASelectable(
+        child: SafeArea(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (!useDrawer)
+                LearnerSidebar(location: location, collapsed: collapsed),
+              Expanded(
+                child: Column(
+                  children: [
+                    Builder(
+                      builder: (headerContext) => LearnerHeader(
+                        location: location,
+                        showMenuButton: useDrawer,
+                        showBrand: useDrawer,
+                        onMenuPressed: () =>
+                            Scaffold.of(headerContext).openDrawer(),
+                      ),
                     ),
-                  ),
-                  Expanded(child: child),
-                ],
+                    Expanded(child: child),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

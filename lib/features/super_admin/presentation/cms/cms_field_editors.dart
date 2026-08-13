@@ -69,7 +69,7 @@ class CmsFieldEditor extends ConsumerWidget {
           ),
           items: [
             for (final option in field.options)
-              DropdownMenuItem(value: option, child: Text(option)),
+              DropdownMenuItem(value: option, child: Text(field.labelFor(option))),
           ],
           onChanged: onChanged,
         );
@@ -90,6 +90,15 @@ class CmsFieldEditor extends ConsumerWidget {
 
       case CmsFieldKind.stringList:
         return _StringListField(field: field, value: value, onChanged: onChanged);
+
+      case CmsFieldKind.date:
+      case CmsFieldKind.dateTime:
+        return _DateField(
+          field: field,
+          value: value == null ? '' : '$value',
+          onChanged: onChanged,
+          withTime: field.kind == CmsFieldKind.dateTime,
+        );
 
       default:
         return _TextField(field: field, value: value, onChanged: onChanged);
@@ -153,6 +162,138 @@ class _TextFieldState extends State<_TextField> {
       ),
     );
   }
+}
+
+/// A date, or a date and a time, chosen from a picker.
+///
+/// Typing an ISO timestamp by hand is how a launch date ends up a year out, so
+/// the field is read-only and opens a calendar — then a clock where the column
+/// stores a time as well. The stored format is exactly what the API expects:
+/// `YYYY-MM-DD` for a date, `YYYY-MM-DDTHH:MM:SS` for a moment.
+class _DateField extends StatefulWidget {
+  const _DateField({
+    required this.field,
+    required this.value,
+    required this.onChanged,
+    required this.withTime,
+  });
+
+  final CmsField field;
+  final String value;
+  final ValueChanged<Object?> onChanged;
+  final bool withTime;
+
+  @override
+  State<_DateField> createState() => _DateFieldState();
+}
+
+class _DateFieldState extends State<_DateField> {
+  late DateTime? _value = _parse(widget.value);
+
+  static DateTime? _parse(String raw) {
+    final text = raw.trim();
+    if (text.isEmpty) return null;
+    // Accepts both the ISO form and SQLite's "2026-09-25 09:00:00".
+    return DateTime.tryParse(text.contains(' ') ? text.replaceFirst(' ', 'T') : text);
+  }
+
+  String _format(DateTime value) {
+    final date =
+        '${value.year.toString().padLeft(4, '0')}-'
+        '${value.month.toString().padLeft(2, '0')}-'
+        '${value.day.toString().padLeft(2, '0')}';
+    if (!widget.withTime) return date;
+    final time =
+        '${value.hour.toString().padLeft(2, '0')}:'
+        '${value.minute.toString().padLeft(2, '0')}:00';
+    return '${date}T$time';
+  }
+
+  static const _months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  /// What the operator reads, rather than what the column stores.
+  String get _readable {
+    final value = _value;
+    if (value == null) return '';
+    final date = '${value.day} ${_months[value.month - 1]} ${value.year}';
+    if (!widget.withTime) return date;
+    final time =
+        '${value.hour.toString().padLeft(2, '0')}:'
+        '${value.minute.toString().padLeft(2, '0')}';
+    return '$date at $time';
+  }
+
+  Future<void> _pick() async {
+    final now = DateTime.now();
+    final current = _value ?? now;
+    final date = await showDatePicker(
+      context: context,
+      initialDate: current,
+      // Wide enough for a past event being recorded and one years ahead.
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 10),
+    );
+    if (date == null || !mounted) return;
+
+    var chosen = DateTime(date.year, date.month, date.day);
+    if (widget.withTime) {
+      final time = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(current),
+      );
+      if (!mounted) return;
+      // Cancelling the clock keeps the date, at midnight, rather than
+      // discarding a choice the operator has already made.
+      if (time != null) {
+        chosen = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      }
+    }
+
+    setState(() => _value = chosen);
+    widget.onChanged(_format(chosen));
+  }
+
+  void _clear() {
+    setState(() => _value = null);
+    widget.onChanged('');
+  }
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: _pick,
+    child: InputDecorator(
+      decoration: InputDecoration(
+        labelText: widget.field.label,
+        helperText: widget.field.help.isEmpty ? null : widget.field.help,
+        suffixIcon: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_value != null)
+              IconButton(
+                tooltip: 'Clear',
+                onPressed: _clear,
+                icon: const Icon(Icons.close, size: 18),
+              ),
+            Icon(
+              widget.withTime ? Icons.event_outlined : Icons.calendar_today_outlined,
+              size: 19,
+              color: WEAColors.accent,
+            ),
+            const SizedBox(width: WEAInsets.sm),
+          ],
+        ),
+      ),
+      child: Text(
+        _readable.isEmpty ? 'Choose a date' : _readable,
+        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+          color: _readable.isEmpty ? WEAColors.mutedText : WEAColors.primaryText,
+        ),
+      ),
+    ),
+  );
 }
 
 /// A list edited as one line per entry, stored as a JSON array.

@@ -7,6 +7,7 @@ import '../../../../app/theme/app_dimensions.dart';
 import '../../../../core/services/app_environment.dart';
 import '../../../../shared/components/wea_brand.dart';
 import '../../../../shared/components/wea_components.dart';
+import '../../../../shared/widgets/wea_selectable.dart';
 import 'cms_analytics_view.dart';
 import 'cms_enquiries_view.dart';
 import 'cms_event_registrations_view.dart';
@@ -73,11 +74,22 @@ class _CmsScreenState extends ConsumerState<CmsScreen> {
           const SizedBox(width: WEAInsets.md),
         ],
       ),
-      drawer: wide ? null : Drawer(child: SafeArea(child: _nav())),
-      body: SafeArea(
-        child: !AppEnvironmentConfig.hasApiConfiguration
-            ? const _NoApiNotice()
-            : Row(
+      // The Builder matters: the drawer's tiles need a context *below* this
+      // Scaffold. Built from the state's own context they sit above it, and
+      // closing the drawer threw "Scaffold.of() called with a context that
+      // does not contain a Scaffold".
+      drawer: wide
+          ? null
+          : Drawer(
+              child: SafeArea(
+                child: Builder(builder: (drawer) => _nav(drawerContext: drawer)),
+              ),
+            ),
+      body: WEASelectable(
+        child: SafeArea(
+          child: !AppEnvironmentConfig.hasApiConfiguration
+              ? const _NoApiNotice()
+              : Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (wide)
@@ -112,6 +124,7 @@ class _CmsScreenState extends ConsumerState<CmsScreen> {
                   ),
                 ],
               ),
+        ),
       ),
     );
   }
@@ -131,37 +144,38 @@ class _CmsScreenState extends ConsumerState<CmsScreen> {
   Iterable<CmsResource> _group(List<String> names) =>
       cmsResources.where((resource) => names.contains(resource.name));
 
-  Widget _nav() => ListView(
+  Widget _nav({BuildContext? drawerContext}) => ListView(
     padding: const EdgeInsets.symmetric(vertical: WEAInsets.md),
     children: [
       _navHeading('Catalogue'),
       for (final resource in cmsResources)
         if (!_eventResources.contains(resource.name) &&
             !_promotionResources.contains(resource.name))
-          _navTile(resource.name, resource.plural, resource.icon),
+          _navTile(resource.name, resource.plural, resource.icon, drawerContext),
       const Divider(),
       _navHeading('Events'),
       for (final resource in _group(_eventResources))
-        _navTile(resource.name, resource.plural, resource.icon),
+        _navTile(resource.name, resource.plural, resource.icon, drawerContext),
       _navTile(
         _eventRegistrations,
         'Event registrations',
         Icons.groups_outlined,
+        drawerContext,
       ),
       const Divider(),
       _navHeading('Promotion'),
       for (final resource in _group(_promotionResources))
-        _navTile(resource.name, resource.plural, resource.icon),
-      _navTile(_analytics, 'Site analytics', Icons.insights_outlined),
+        _navTile(resource.name, resource.plural, resource.icon, drawerContext),
+      _navTile(_analytics, 'Site analytics', Icons.insights_outlined, drawerContext),
       const Divider(),
       _navHeading('Applications'),
-      _navTile(_registrations, 'Registrations', Icons.how_to_reg_outlined),
+      _navTile(_registrations, 'Registrations', Icons.how_to_reg_outlined, drawerContext),
       const Divider(),
       _navHeading('Enquiries'),
-      _navTile(_enquiries, 'Contact messages', Icons.forum_outlined),
+      _navTile(_enquiries, 'Contact messages', Icons.forum_outlined, drawerContext),
       const Divider(),
       _navHeading('Site'),
-      _navTile(_settings, 'Website copy', Icons.tune_outlined),
+      _navTile(_settings, 'Website copy', Icons.tune_outlined, drawerContext),
     ],
   );
 
@@ -181,7 +195,12 @@ class _CmsScreenState extends ConsumerState<CmsScreen> {
     ),
   );
 
-  Widget _navTile(String name, String label, IconData icon) {
+  Widget _navTile(
+    String name,
+    String label,
+    IconData icon,
+    BuildContext? drawerContext,
+  ) {
     final active = _section == name;
     return ListTile(
       selected: active,
@@ -200,7 +219,11 @@ class _CmsScreenState extends ConsumerState<CmsScreen> {
       ),
       onTap: () {
         setState(() => _section = name);
-        if (Scaffold.of(context).hasDrawer) Navigator.of(context).maybePop();
+        // Closed through the drawer's own context. The state's context sits
+        // above the Scaffold, so popping with it would dismiss the whole
+        // screen rather than the drawer.
+        final drawer = drawerContext;
+        if (drawer != null) Scaffold.of(drawer).closeDrawer();
       },
     );
   }

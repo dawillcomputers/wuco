@@ -175,6 +175,21 @@ class _EventHero extends StatelessWidget {
                   ),
                 ),
               ),
+              if (event.theme.isNotEmpty) ...[
+                const SizedBox(height: WEAInsets.sm),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: Text(
+                    // The line the event is convened around, so it carries
+                    // the accent rather than sitting in the body colour.
+                    event.theme,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: WEAColors.accentSoft,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
               if (event.subtitle.isNotEmpty) ...[
                 const SizedBox(height: WEAInsets.md),
                 ConstrainedBox(

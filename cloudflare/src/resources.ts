@@ -259,6 +259,7 @@ export const RESOURCES: ResourceSpec[] = [
     filters: { status: 'status', event_type: 'event_type' },
     fields: [
       text('title', true),
+      text('theme'),
       text('subtitle'),
       text('event_type'),
       text('summary'),

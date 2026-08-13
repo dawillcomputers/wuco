@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme/app_colors.dart';
+import '../../../shared/widgets/wea_selectable.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../shared/components/wea_brand.dart';
 import '../domain/auth_failure.dart';
@@ -43,7 +44,8 @@ class AuthScaffold extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: WEAColors.background,
-      body: split
+      body: WEASelectable(
+        child: split
           ? Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -81,6 +83,7 @@ class AuthScaffold extends StatelessWidget {
                 ],
               ),
             ),
+      ),
     );
   }
 }

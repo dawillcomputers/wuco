@@ -795,6 +795,16 @@ export default {
             'PASSWORD_RESET',
             RESET_TTL_MINUTES * 60_000,
           );
+          // The link goes to the address on file, never back in the response,
+          // so asking for a reset tells the asker nothing they did not know.
+          mail('password_reset', {
+            to: {
+              email: user.email,
+              name: `${user.first_name} ${user.last_name}`.trim(),
+            },
+            userId: user.id,
+            data: { first_name: user.first_name, token },
+          });
         }
         // Always 200: the response must not reveal whether the address exists.
         return json({ ok: true, reset_token: devToken(env, token) }, 200, allowed);
@@ -915,6 +925,23 @@ export default {
         if (str(body.stage) === 'COMPLETE') {
           const saved = result.data?.registration as Record<string, unknown>;
           if (saved) await mailEventRegistration(env, mail, saved, 'received');
+
+          // Completing a registration is what creates the account, so the
+          // credentials go out with the acknowledgement rather than requiring
+          // anybody to sign up separately.
+          const password = str(result.data?.temporary_password);
+          if (password !== '' && saved) {
+            mail('account_created', {
+              to: {
+                email: str(saved.email),
+                name: `${str(saved.first_name)} ${str(saved.last_name)}`.trim(),
+              },
+              data: {
+                first_name: str(saved.first_name),
+                temporary_password: password,
+              },
+            });
+          }
         }
         return json(result.data, 201, allowed);
       }
@@ -1708,6 +1735,47 @@ export default {
             201,
             allowed,
           );
+        }
+
+        /**
+         * The office resetting somebody's password for them.
+         *
+         * For the person who cannot receive the reset email, or who is on the
+         * telephone now. A temporary password is issued, emailed, and returned
+         * once so it can be read out; the account must replace it at the next
+         * sign-in, and every existing session is dropped so a stolen one
+         * cannot outlive the reset.
+         */
+        const resetMatch = path.match(/^\/api\/admin\/users\/([^/]+)\/reset-password$/);
+        if (method === 'POST' && resetMatch) {
+          const target = await findUserById(env, resetMatch[1]);
+          if (!target) return fail('NOT_FOUND', 404, allowed);
+
+          const password = temporaryPassword();
+          await setPassword(env, target.id, password);
+          await env.WEA_DB.prepare(
+            `UPDATE users SET must_change_password = 1, updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?1`,
+          )
+            .bind(target.id)
+            .run();
+          await env.WEA_DB.prepare('DELETE FROM sessions WHERE user_id = ?1')
+            .bind(target.id)
+            .run();
+
+          mail('password_reset_by_office', {
+            to: {
+              email: target.email,
+              name: `${target.first_name} ${target.last_name}`.trim(),
+            },
+            userId: target.id,
+            data: {
+              first_name: target.first_name,
+              temporary_password: password,
+            },
+          });
+          await audit(env, actor.id, 'RESET_USER_PASSWORD', target.id);
+          return json({ ok: true, temporary_password: password }, 200, allowed);
         }
 
         const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);

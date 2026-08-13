@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/theme/app_colors.dart';
@@ -279,6 +280,15 @@ class _ResourceRow extends StatelessWidget {
           const SizedBox(width: WEAInsets.sm),
           if (resource.hasStatus && status.isNotEmpty) _StatusChip(status: status),
           const SizedBox(width: WEAInsets.xs),
+          // For anything the public registers for, the link to send them is
+          // one click away from the row that created it.
+          if (_registrationPath(resource.name, '${row['slug'] ?? ''}') != null)
+            _ShareRowButton(
+              pagePath: _pagePath(resource.name, '${row['slug'] ?? ''}')!,
+              registrationPath:
+                  _registrationPath(resource.name, '${row['slug'] ?? ''}')!,
+              title: '${row[resource.titleColumn] ?? ''}',
+            ),
           if (resource.hasStatus)
             IconButton(
               tooltip: status == 'PUBLISHED' ? 'Unpublish' : 'Publish',
@@ -305,6 +315,87 @@ class _ResourceRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The public page for a row, where it has one.
+String? _pagePath(String resource, String slug) {
+  if (slug.isEmpty) return null;
+  return switch (resource) {
+    'events' => '/events/$slug',
+    'programmes' => '/programmes/$slug',
+    _ => null,
+  };
+}
+
+/// Where the public goes to reserve a place or apply.
+String? _registrationPath(String resource, String slug) {
+  if (slug.isEmpty) return null;
+  return switch (resource) {
+    'events' => '/events/$slug/register',
+    'programmes' => '/register/$slug',
+    _ => null,
+  };
+}
+
+/// Copies the link that sends somebody straight to registration.
+///
+/// The point of it is the ordinary thing an academy does the moment an event
+/// is published: paste a link into a message, a post or an invitation. It is
+/// built from the site the administrator is already on, so it is right in
+/// every environment without anything to configure.
+class _ShareRowButton extends StatelessWidget {
+  const _ShareRowButton({
+    required this.pagePath,
+    required this.registrationPath,
+    required this.title,
+  });
+
+  final String pagePath;
+  final String registrationPath;
+  final String title;
+
+  Future<void> _copy(BuildContext context, String path, String what) async {
+    final url = '${Uri.base.origin}$path';
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: WEAColors.navy,
+        content: Text('$what copied — $url'),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<int>(
+    tooltip: 'Copy a link to share',
+    icon: const Icon(Icons.link, size: 19),
+    onSelected: (choice) => choice == 0
+        ? _copy(context, registrationPath, 'Registration link')
+        : _copy(context, pagePath, 'Page link'),
+    itemBuilder: (context) => const [
+      PopupMenuItem(
+        value: 0,
+        child: ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.how_to_reg_outlined, size: 19),
+          title: Text('Copy registration link'),
+          subtitle: Text('Opens the form to reserve a place'),
+        ),
+      ),
+      PopupMenuItem(
+        value: 1,
+        child: ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.public, size: 19),
+          title: Text('Copy page link'),
+          subtitle: Text('Opens the public page'),
+        ),
+      ),
+    ],
+  );
 }
 
 class _StatusChip extends StatelessWidget {
