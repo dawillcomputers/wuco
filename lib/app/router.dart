@@ -434,13 +434,10 @@ String? _guard(AuthState auth, String location) {
     return '/change-password';
   }
 
-  // Signed in but unverified: only the verification screen and profile are
-  // reachable.
-  if (auth is AuthEmailUnverified &&
-      _isProtected(location) &&
-      location != '/verify-email') {
-    return '/verify-email';
-  }
+  // Email verification no longer gates access. Accounts are created active,
+  // because holding a new registrant behind a link in an inbox cost more
+  // registrations than the check was worth. /verify-email still exists for
+  // anyone following an older link; it simply is not a wall any more.
 
   if (signedIn && _guestOnly.contains(location)) {
     return profile.role.landingRoute;

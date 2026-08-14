@@ -793,10 +793,15 @@ export default {
         const id = newId();
         const salt = randomHex(16);
         await env.WEA_DB.prepare(
+          // Created ACTIVE and verified. The academy decided that holding a
+          // new account behind an email link costs more registrations than
+          // the check is worth; the address is still confirmed in practice by
+          // the welcome message and by every receipt that follows.
           `INSERT INTO users
              (id, email, password_hash, password_salt, password_iterations,
-              first_name, last_name, phone, country, role, status)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'PENDING')`,
+              first_name, last_name, phone, country, role, status,
+              email_verified)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'ACTIVE', 1)`,
         )
           .bind(
             id,
@@ -812,12 +817,6 @@ export default {
           )
           .run();
 
-        const verification = await issueToken(
-          env,
-          id,
-          'EMAIL_VERIFICATION',
-          VERIFICATION_TTL_HOURS * 3_600_000,
-        );
         const row = await findUserById(env, id);
         const session = await createSession(env, id);
         mail('welcome', {
@@ -829,9 +828,6 @@ export default {
           {
             profile: toProfile(row!),
             session,
-            // Only present when EXPOSE_AUTH_TOKENS is on, so the flow can be
-            // completed before an email provider is connected.
-            verification_token: devToken(env, verification),
           },
           201,
           allowed,
@@ -1003,6 +999,31 @@ export default {
         if (str(body.stage) === 'COMPLETE') {
           const saved = result.data?.registration as Record<string, unknown>;
           if (saved) await mailEventRegistration(env, mail, saved, 'received');
+
+          /**
+           * Signed in on the spot.
+           *
+           * Registering created the account, so asking the registrant to go
+           * away and sign in with a password they have not read yet would be
+           * absurd. The session is issued only where the registration is not
+           * already somebody else's — a guest completing a registration whose
+           * address belongs to an existing account gets the account linked,
+           * not a session for it, because they have not proved they own it.
+           */
+          if (!actor && str(result.data?.temporary_password) !== '') {
+            const owner = await env.WEA_DB.prepare(
+              'SELECT user_id FROM event_registrations WHERE id = ?1',
+            )
+              .bind(str(saved?.id))
+              .first<{ user_id: string | null }>();
+            if (owner?.user_id) {
+              const created = await findUserById(env, owner.user_id);
+              if (created && created.status === 'ACTIVE') {
+                result.data!.session = await createSession(env, created.id);
+                result.data!.profile = toProfile(created);
+              }
+            }
+          }
 
           // Completing a registration is what creates the account, so the
           // credentials go out with the acknowledgement rather than requiring

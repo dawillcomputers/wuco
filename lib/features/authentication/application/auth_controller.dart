@@ -5,7 +5,6 @@ import '../data/auth_repository.dart';
 import '../data/cloudflare_auth_repository.dart';
 import '../data/in_memory_auth_repository.dart';
 import '../data/session_store.dart';
-import '../domain/account_status.dart';
 import '../domain/auth_failure.dart';
 import '../domain/auth_state.dart';
 import '../domain/programme_enrolment.dart';
@@ -63,9 +62,11 @@ class AuthController extends Notifier<AuthState> {
 
   AuthState _stateFor(UserProfile? profile) {
     if (profile == null) return const AuthState.unauthenticated();
-    if (!profile.emailVerified && profile.status == AccountStatus.pending) {
-      return AuthState.emailUnverified(profile);
-    }
+    // Email verification no longer holds anybody back: accounts are created
+    // active and verified, because a link in an inbox between a registrant and
+    // their place cost more registrations than the check was worth. An account
+    // left unverified by an older release is signed in like any other rather
+    // than stranded in a state nothing now resolves.
     return AuthState.authenticated(profile);
   }
 

@@ -169,10 +169,20 @@ class ApiEventsRepository
     if (resumeToken != null && resumeToken.isNotEmpty) {
       await _tokens.write(registration.reference, resumeToken);
     }
+
+    // The API signs a new registrant in as part of completing. Persisting the
+    // token here is what makes them signed in on the next screen.
+    final session = response['session'] as Map?;
+    final sessionToken = session?['token'] as String?;
+    if (sessionToken != null && sessionToken.isNotEmpty) {
+      await _sessions.write(sessionToken);
+    }
+
     return SavedRegistration(
       registration: registration,
       resumeToken: resumeToken,
       temporaryPassword: response['temporary_password'] as String?,
+      signedIn: sessionToken != null && sessionToken.isNotEmpty,
     );
   }
 

@@ -131,6 +131,61 @@ export const methodByKey = (key: string): PaymentMethodOption | undefined =>
   FLUTTERWAVE_METHODS.find((method) => method.key === key);
 
 // ---------------------------------------------------------------------------
+// Shaping what WEA holds into what the processor accepts
+// ---------------------------------------------------------------------------
+
+/**
+ * A name in the form the customer endpoint accepts.
+ *
+ * It permits letters, spaces, apostrophes and hyphens, between two and fifty
+ * characters. A registrant may have typed anything, and a rejected customer
+ * means a rejected payment, so anything outside that is dropped rather than
+ * sent — a payment must not fail because somebody has a full stop in their
+ * name.
+ */
+function customerName(first: string, last: string): Record<string, string> | undefined {
+  const clean = (value: string) =>
+    value
+      .replace(/[^\p{L} '-]/gu, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 50);
+
+  const name: Record<string, string> = {};
+  if (clean(first).length >= 2) name.first = clean(first);
+  if (clean(last).length >= 2) name.last = clean(last);
+  return Object.keys(name).length > 0 ? name : undefined;
+}
+
+/**
+ * A telephone number split into the country code and subscriber number the
+ * customer endpoint requires, which wants seven to ten digits in `number`.
+ *
+ * Nigerian numbers are usually given as `08012345678` — eleven digits with a
+ * trunk zero — which is one too many, so the zero is dropped and the country
+ * code supplied separately. A number that cannot be read confidently is
+ * omitted: the field is optional, and guessing at somebody's country would be
+ * worse than leaving it out.
+ */
+function customerPhone(raw: string): Record<string, string> | undefined {
+  const digits = raw.replace(/\D/g, '');
+
+  // International, already carrying Nigeria's country code.
+  if (digits.length === 13 && digits.startsWith('234')) {
+    return { country_code: '234', number: digits.slice(3) };
+  }
+  // National, with the trunk zero.
+  if (digits.length === 11 && digits.startsWith('0')) {
+    return { country_code: '234', number: digits.slice(1) };
+  }
+  // Already the subscriber number alone.
+  if (digits.length >= 7 && digits.length <= 10) {
+    return { country_code: '234', number: digits };
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
@@ -224,7 +279,13 @@ async function accessToken(config: ResolvedConfig): Promise<string | null> {
       client_secret: config.clientSecret,
     }),
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    // The body names the problem — an unknown client, a bad secret — and
+    // contains no credential of ours, so it is safe to log.
+    const detail = await response.text().catch(() => '');
+    console.error('Flutterwave token request failed', response.status, detail.slice(0, 300));
+    return null;
+  }
 
   const body = (await response.json().catch(() => ({}))) as {
     access_token?: string;
@@ -290,11 +351,16 @@ async function call(
   }
 
   const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  // A v4 rejection puts the offending fields in `error.validation_errors`
+  // rather than in `message`, so both are kept.
+  const detail = response.ok
+    ? ''
+    : JSON.stringify(payload.error ?? payload).slice(0, 400);
   return {
     ok: response.ok,
     status: response.status,
     data: (payload.data as Record<string, unknown>) ?? {},
-    message: str(payload.message),
+    message: str(payload.message) || detail,
   };
 }
 
@@ -383,6 +449,9 @@ export class FlutterwavePaymentService {
   }
 
   /** Finds or creates the payer at the processor. */
+  /** Set when the last customer attempt failed, for the error shown upstream. */
+  private lastCustomerError = '';
+
   private async ensureCustomer(request: PaymentRequest): Promise<string | null> {
     if (request.customerId) return request.customerId;
 
@@ -391,16 +460,22 @@ export class FlutterwavePaymentService {
       'POST',
       '/customers',
       {
+        // Only the address is required. Everything else is included when it
+        // can be shaped into what the endpoint accepts, and omitted when it
+        // cannot, so a payment never fails over an optional field.
         email: request.email,
-        name: {
-          first: request.firstName,
-          last: request.lastName,
-        },
-        phone: request.phone ? { number: request.phone } : undefined,
+        name: customerName(request.firstName, request.lastName),
+        phone: customerPhone(request.phone),
       },
       `cus-${request.reference}`,
     );
-    if (!result.ok) return null;
+    if (!result.ok) {
+      // The processor's own wording names the offending field, which is the
+      // only thing that makes a 400 actionable. It carries no credential.
+      this.lastCustomerError = `${result.status}: ${result.message || 'no detail'}`;
+      console.error('Flutterwave customer creation failed', this.lastCustomerError);
+      return null;
+    }
     return str(result.data.id) || null;
   }
 
@@ -425,7 +500,15 @@ export class FlutterwavePaymentService {
       },
       `pmd-${request.reference}-${method.key}`,
     );
-    if (!result.ok) return null;
+    if (!result.ok) {
+      console.error(
+        'Flutterwave payment method creation failed',
+        method.providerType,
+        result.status,
+        result.message,
+      );
+      return null;
+    }
     return str(result.data.id) || null;
   }
 
@@ -449,12 +532,20 @@ export class FlutterwavePaymentService {
 
     const customerId = await this.ensureCustomer(request);
     if (!customerId) {
-      return { ok: false, code: 'PAYMENT_INITIALISATION_FAILED' };
+      return {
+        ok: false,
+        code: 'PAYMENT_INITIALISATION_FAILED',
+        message: `Could not create the customer at the payment processor (${this.lastCustomerError}).`,
+      };
     }
 
     const paymentMethodId = await this.createPaymentMethod(customerId, method, request);
     if (!paymentMethodId) {
-      return { ok: false, code: 'PAYMENT_INITIALISATION_FAILED' };
+      return {
+        ok: false,
+        code: 'PAYMENT_INITIALISATION_FAILED',
+        message: `The processor did not accept the ${method.key} payment method.`,
+      };
     }
 
     const result = await call(
@@ -474,10 +565,11 @@ export class FlutterwavePaymentService {
     );
 
     if (!result.ok) {
+      console.error('Flutterwave order creation failed', result.status, result.message);
       return {
         ok: false,
         code: 'PAYMENT_INITIALISATION_FAILED',
-        message: result.message,
+        message: result.message || 'The processor did not accept the order.',
       };
     }
 

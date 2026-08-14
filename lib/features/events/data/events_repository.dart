@@ -112,6 +112,7 @@ class SavedRegistration {
     required this.registration,
     this.resumeToken,
     this.temporaryPassword,
+    this.signedIn = false,
   });
 
   final EventRegistration registration;
@@ -124,6 +125,11 @@ class SavedRegistration {
   /// Issued once, when a guest registration is created. Held by the client so
   /// the registrant can come back to their own registration without an account.
   final String? resumeToken;
+
+  /// True when completing the registration also signed the registrant in.
+  /// Registering created their account, so making them sign in separately
+  /// with a password they have not read yet would be absurd.
+  final bool signedIn;
 }
 
 /// The public event experience: browsing, registering, paying, participating.

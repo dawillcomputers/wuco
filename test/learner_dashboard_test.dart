@@ -82,9 +82,11 @@ void main() {
       expect(guardLocation(auth, '/super-admin'), '/learner');
     });
 
-    test('an unverified learner is held at email verification', () {
-      final auth = AuthState.emailUnverified(testAccount());
-      expect(guardLocation(auth, '/learner'), '/verify-email');
+    test('an unverified learner reaches their dashboard', () {
+      // Verification no longer gates anything: accounts are created active,
+      // and a learner left unverified by an older release is not stranded.
+      final auth = AuthState.authenticated(testAccount());
+      expect(guardLocation(auth, '/learner'), isNull);
     });
 
     test('a signed-in learner is redirected away from the login page', () {

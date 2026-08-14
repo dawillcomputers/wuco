@@ -176,6 +176,12 @@ class EventActions {
       eventId: saved.registration.eventId,
       registrationId: saved.registration.id,
     );
+    // Completing a registration can create the account and sign them in. The
+    // controller is told so the header, the guards and every other reader
+    // agree that somebody is now signed in.
+    if (saved.signedIn) {
+      await _ref.read(authControllerProvider.notifier).restore();
+    }
     _ref.invalidate(eventRegistrationContextProvider(slug));
     _ref.invalidate(myEventRegistrationsProvider);
     return saved;

@@ -381,16 +381,21 @@ void main() {
       expect(guardLocation(state, '/change-password'), isNull);
     });
 
-    test('an unverified account is held at verification', () {
-      final state = AuthState.emailUnverified(
+    test('email verification no longer walls off the application', () {
+      // Accounts are created active and verified: holding a new registrant
+      // behind a link in an inbox cost more registrations than the check was
+      // worth. The verification screen still opens for anyone following an
+      // older link, but it is not somewhere they are sent.
+      final state = AuthState.authenticated(
         UserProfile(
           id: 'id',
           email: 'user@example.com',
           role: UserRole.applicant,
-          status: AccountStatus.pending,
+          status: AccountStatus.active,
+          emailVerified: false,
         ),
       );
-      expect(guardLocation(state, '/application'), '/verify-email');
+      expect(guardLocation(state, '/application'), isNull);
       expect(guardLocation(state, '/verify-email'), isNull);
     });
 
