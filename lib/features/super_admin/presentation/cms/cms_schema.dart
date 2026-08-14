@@ -246,6 +246,15 @@ const cmsResources = <CmsResource>[
       CmsField(column: 'cpd_points', label: 'CPD points', kind: CmsFieldKind.number),
       CmsField(column: 'capacity', label: 'Capacity', kind: CmsFieldKind.number),
       CmsField(
+        column: 'enabled_payment_methods',
+        label: 'Tuition payment methods',
+        kind: CmsFieldKind.stringList,
+        help:
+            'One per line: bank_transfer, ussd, opay, nqr, card, bank_account. '
+            'Leave empty to collect tuition by transfer or invoice instead. A '
+            'method only appears if your Flutterwave account supports it too.',
+      ),
+      CmsField(
         column: 'registration_open',
         label: 'Registration open',
         kind: CmsFieldKind.toggle,

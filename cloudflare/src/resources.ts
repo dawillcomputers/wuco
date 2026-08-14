@@ -113,6 +113,7 @@ export const RESOURCES: ResourceSpec[] = [
       text('tuition_note'),
       number('cpd_points'),
       number('capacity'),
+      jsonField('enabled_payment_methods'),
       boolean('registration_open'),
       boolean('featured'),
     ],

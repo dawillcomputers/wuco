@@ -83,6 +83,12 @@ import {
 import { deleteMedia, listMedia, serveMedia, uploadMedia } from './media';
 import { readWebhook } from './payments';
 import { shareCard } from './share';
+import {
+  beginTuitionPayment,
+  enabledTuitionMethods,
+  latestTuitionPayment,
+  settleTuitionPayment,
+} from './tuition';
 import { availableProviders, signInWithProvider } from './social';
 import {
   createResource,
@@ -427,6 +433,45 @@ async function mailEventRegistration(
 }
 
 /**
+ * Tells an applicant their tuition arrived and their place is theirs.
+ *
+ * Reached from the webhook, where there is no request to answer — so this is
+ * the only notice a payer gets if they closed the tab before the redirect.
+ */
+async function mailTuitionConfirmed(
+  env: Env,
+  mail: Mailer,
+  paymentReference: string,
+): Promise<void> {
+  const row = await env.WEA_DB.prepare(
+    `SELECT r.reference, r.amount, r.currency, u.id AS user_id, u.email,
+            u.first_name, u.last_name, p.title AS programme_title
+       FROM programme_payments pp
+       JOIN registrations r ON r.id = pp.registration_id
+       JOIN users u ON u.id = r.user_id
+       JOIN programmes p ON p.id = r.programme_id
+      WHERE pp.provider_reference = ?1`,
+  )
+    .bind(paymentReference)
+    .first<Record<string, unknown>>();
+  if (!row) return;
+
+  mail('programme_confirmed', {
+    to: {
+      email: str(row.email),
+      name: `${str(row.first_name)} ${str(row.last_name)}`.trim(),
+    },
+    reference: str(row.reference),
+    userId: str(row.user_id),
+    data: {
+      first_name: str(row.first_name),
+      programme_title: str(row.programme_title),
+      amount: money(row.amount, row.currency),
+    },
+  });
+}
+
+/**
  * Settles a payment and tells the registrant what happened.
  *
  * Shared by the return redirect and the webhook, so a payer is written to
@@ -552,6 +597,36 @@ export default {
 
       if (method === 'GET' && path === '/api/catalogue/faculty') {
         return json({ faculty: await listFaculty(env.WEA_DB) }, 200, allowed);
+      }
+
+      const tuitionMethodsMatch = path.match(
+        /^\/api\/catalogue\/programmes\/([^/]+)\/payment-methods$/,
+      );
+      if (method === 'GET' && tuitionMethodsMatch) {
+        const programme = await env.WEA_DB.prepare(
+          'SELECT id FROM programmes WHERE (id = ?1 OR slug = ?1) AND status = ?2',
+        )
+          .bind(decodeURIComponent(tuitionMethodsMatch[1]), 'PUBLISHED')
+          .first<{ id: string }>();
+        if (!programme) return fail('NOT_FOUND', 404, allowed);
+        const methods = await enabledTuitionMethods(
+          env.WEA_DB,
+          programme.id,
+          paymentSecrets(env),
+        );
+        return json(
+          {
+            methods: methods.map((option) => ({
+              key: option.key,
+              label: option.label,
+              description: option.description,
+              flow: option.flow,
+            })),
+            environment: FlutterwavePaymentService.from(paymentSecrets(env)).environment,
+          },
+          200,
+          allowed,
+        );
       }
 
       if (method === 'GET' && path === '/api/payment-methods') {
@@ -691,13 +766,34 @@ export default {
         );
         if (!notice.ok) return fail('NOT_AUTHORISED', 401, allowed);
         if (notice.reference !== '') {
-          const payment = await env.WEA_DB.prepare(
+          // One webhook endpoint serves both kinds of payment, so the
+          // reference decides which. An event and a programme reference can
+          // never collide: they are drawn from different sequences and carry
+          // different prefixes.
+          const eventPayment = await env.WEA_DB.prepare(
             'SELECT registration_id FROM event_payments WHERE provider_reference = ?1',
           )
             .bind(notice.reference)
             .first<{ registration_id: string }>();
-          if (payment) {
-            await settleAndNotify(env, mail, notice.reference, payment.registration_id);
+
+          if (eventPayment) {
+            await settleAndNotify(
+              env,
+              mail,
+              notice.reference,
+              eventPayment.registration_id,
+            );
+          } else {
+            // Tuition. Settling it enrols the applicant, so a payer who closed
+            // the tab before being redirected still gets their place.
+            const settled = await settleTuitionPayment(
+              env.WEA_DB,
+              notice.reference,
+              paymentSecrets(env),
+            );
+            if (settled.ok && settled.data?.enrolled === true) {
+              await mailTuitionConfirmed(env, mail, notice.reference);
+            }
           }
         }
         return json({ ok: true }, 200, allowed);
@@ -1404,6 +1500,80 @@ export default {
           return fail('NOT_AUTHORISED', 403, allowed);
         }
         return json(await cohortProgress(env.WEA_DB, programmeId), 200, allowed);
+      }
+
+      // --- Tuition -----------------------------------------------------------
+      //
+      // The applicant's own registration only: the reference is looked up
+      // against their user id, so one applicant cannot pay against — or read —
+      // another's application.
+
+      const tuitionPayMatch = path.match(
+        /^\/api\/registrations\/([^/]+)\/payment$/,
+      );
+      if (method === 'POST' && tuitionPayMatch) {
+        const registration = await env.WEA_DB.prepare(
+          'SELECT * FROM registrations WHERE (reference = ?1 OR id = ?1) AND user_id = ?2',
+        )
+          .bind(decodeURIComponent(tuitionPayMatch[1]), actor.id)
+          .first<Record<string, unknown>>();
+        if (!registration) return fail('NOT_FOUND', 404, allowed);
+
+        const site = await publicSiteUrl(env);
+        const result = await beginTuitionPayment(
+          env.WEA_DB,
+          registration,
+          paymentSecrets(env),
+          `${site.replace(/\/$/, '')}/register/${registration.programme_id}`,
+          str((await readJson(request)).payment_method),
+        );
+        if (!result.ok) {
+          return fail(
+            result.code!,
+            result.code === 'ALREADY_PAID' ? 409 : 400,
+            allowed,
+            result.message,
+          );
+        }
+        return json(result.data, 201, allowed);
+      }
+
+      const tuitionVerifyMatch = path.match(
+        /^\/api\/registrations\/([^/]+)\/verify$/,
+      );
+      if (method === 'POST' && tuitionVerifyMatch) {
+        const registration = await env.WEA_DB.prepare(
+          'SELECT * FROM registrations WHERE (reference = ?1 OR id = ?1) AND user_id = ?2',
+        )
+          .bind(decodeURIComponent(tuitionVerifyMatch[1]), actor.id)
+          .first<Record<string, unknown>>();
+        if (!registration) return fail('NOT_FOUND', 404, allowed);
+
+        const body = await readJson(request);
+        const reference =
+          str(body.payment_reference) ||
+          str(
+            (await latestTuitionPayment(env.WEA_DB, str(registration.id)))
+              ?.provider_reference,
+          );
+        if (reference === '') return fail('NOT_FOUND', 404, allowed);
+        // A payment reference belongs to the registration it was issued for.
+        if (!reference.startsWith(str(registration.reference))) {
+          return fail('NOT_AUTHORISED', 403, allowed);
+        }
+
+        const result = await settleTuitionPayment(
+          env.WEA_DB,
+          reference,
+          paymentSecrets(env),
+        );
+        if (!result.ok) return fail(result.code!, 404, allowed);
+        // The webhook may well have settled this first; the receipt is sent
+        // only by whichever path actually changed the outcome.
+        if (result.data?.enrolled === true && result.data?.already_settled != true) {
+          await mailTuitionConfirmed(env, mail, reference);
+        }
+        return json(result.data, 200, allowed);
       }
 
       // --- Enrolments ------------------------------------------------------
