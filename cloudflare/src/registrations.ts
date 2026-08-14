@@ -254,9 +254,50 @@ const REVIEWABLE = [
 ];
 
 /**
- * Super Admin decision on an application. Confirming one also enrols the
- * learner and promotes an applicant account, so a confirmed place immediately
- * means access.
+ * Gives an applicant their place.
+ *
+ * Enrolling and promoting are one act, not two: a place that has been paid for
+ * but leaves the account an APPLICANT is a place the learner cannot reach.
+ * `INSERT OR IGNORE` makes it safe to call again — a payment verified twice,
+ * or confirmed by hand after a processor already settled it, must not produce
+ * a second enrolment.
+ *
+ * `granted_by` is null when nobody decided: the payment did.
+ */
+export async function enrolFromRegistration(
+  db: D1Database,
+  registration: { user_id: string; programme_id: string },
+  grantedBy: string | null,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO programme_enrolments
+         (id, user_id, programme_id, payment_status, granted_by)
+       VALUES (?1, ?2, ?3, 'PAID', ?4)`,
+    )
+    .bind(
+      `enr-${newId()}`,
+      registration.user_id,
+      registration.programme_id,
+      grantedBy,
+    )
+    .run();
+
+  // An applicant who has been given a place is a learner. Any other role is
+  // left alone: a lecturer who enrols on a colleague's programme keeps theirs.
+  await db
+    .prepare(
+      `UPDATE users SET role = 'LEARNER', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?1 AND role = 'APPLICANT'`,
+    )
+    .bind(registration.user_id)
+    .run();
+}
+
+/**
+ * Super Admin decision on an application. Confirming one — or recording that
+ * it has been paid — also enrols the learner and promotes an applicant
+ * account, so a place immediately means access.
  */
 export async function reviewRegistration(
   db: D1Database,
@@ -283,23 +324,11 @@ export async function reviewRegistration(
     .bind(status, str(body.review_note), reviewerId, registrationId)
     .run();
 
-  if (status === 'CONFIRMED') {
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO programme_enrolments
-           (id, user_id, programme_id, payment_status, granted_by)
-         VALUES (?1, ?2, ?3, 'PAID', ?4)`,
-      )
-      .bind(`enr-${newId()}`, registration.user_id, registration.programme_id, reviewerId)
-      .run();
-    // An applicant who has been given a place is a learner.
-    await db
-      .prepare(
-        `UPDATE users SET role = 'LEARNER', updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?1 AND role = 'APPLICANT'`,
-      )
-      .bind(registration.user_id)
-      .run();
+  // Paying for a place *is* taking it up. Requiring a separate confirmation
+  // after the money has arrived left applicants paid-for but shut out until
+  // somebody in the office noticed, so PAID enrols exactly as CONFIRMED does.
+  if (status === 'CONFIRMED' || status === 'PAID') {
+    await enrolFromRegistration(db, registration, reviewerId);
   }
 
   const row = await db

@@ -68,11 +68,19 @@ class _CmsRegistrationsViewState extends ConsumerState<CmsRegistrationsView> {
                     helperText: 'Kept for the programme office; not shown publicly.',
                   ),
                 ),
-                if (status == RegistrationStatus.confirmed) ...[
+                // Paying for a place is taking it up, so both decisions enrol.
+                // Saying so here stops the office marking somebody paid and
+                // then hunting for a second button that no longer exists.
+                if (status == RegistrationStatus.confirmed ||
+                    status == RegistrationStatus.paid) ...[
                   const SizedBox(height: WEAInsets.sm),
                   Text(
-                    'Confirming enrols this applicant on the programme and gives '
-                    'them learner access.',
+                    status == RegistrationStatus.paid
+                        ? 'Recording payment enrols this applicant on the '
+                              'programme straight away and gives them learner '
+                              'access — no separate confirmation is needed.'
+                        : 'Confirming enrols this applicant on the programme '
+                              'and gives them learner access.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
