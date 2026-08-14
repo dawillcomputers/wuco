@@ -1145,6 +1145,13 @@ export default {
           path.startsWith('/api/admin/') ||
           path.startsWith('/api/registrations') ||
           path.startsWith('/api/contact/') ||
+          // Areas that belong to a signed-in account. Answering 404 here would
+          // tell a learner whose session had simply expired that their
+          // programme no longer exists, and send them looking for a fault
+          // rather than to the sign-in page.
+          path.startsWith('/api/learning/') ||
+          path.startsWith('/api/teaching/') ||
+          path.startsWith('/api/my/') ||
           path === '/api/profile' ||
           path === '/api/enrolments'
         ) {
