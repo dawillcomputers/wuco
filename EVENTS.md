@@ -110,13 +110,23 @@ A processor is offered only when the deployment holds its key, so an
 unconfigured environment shows the academy's own instructions rather than
 sending a payer to a checkout that cannot work.
 
-Set the secrets with `wrangler secret put`:
+Flutterwave is **V4 (Next Gen)**, which authenticates with an OAuth client
+pair rather than a static secret key. Set the secrets with
+`wrangler secret put`, from the `cloudflare/` directory:
 
 ```
-PAYSTACK_SECRET_KEY
-FLUTTERWAVE_SECRET_KEY
-FLUTTERWAVE_WEBHOOK_HASH
+FLW_CLIENT_ID
+FLW_CLIENT_SECRET
+FLW_WEBHOOK_SECRET     # a random string you choose, matching the dashboard
+FLW_ENCRYPTION_KEY     # held for the card direct-charge flow; unused today
 ```
+
+Everything defaults to **SANDBOX**. Production additionally requires
+`FLW_ENVIRONMENT=PRODUCTION` *and* `FLW_V4_BASE_URL`: there is no compiled-in
+production host, so a half-configured deployment is reported unusable rather
+than quietly reaching a live processor.
+
+`npm run verify:flutterwave` checks these properties without credentials.
 
 **Verification.** Three paths converge on `settleEventPayment` — the return
 redirect, the processor's webhook and a manual refresh — and all three ask the
@@ -288,9 +298,13 @@ ordinary WEA account path, which is offered but never required.
 | --- | --- | --- |
 | `PUBLIC_SITE_URL` | var | Builds share links and payment return URLs |
 | `ANALYTICS_SALT` | secret | Salts the rotating visitor digest |
+| `FLW_CLIENT_ID` | secret | Flutterwave V4 OAuth client id |
+| `FLW_CLIENT_SECRET` | secret | Flutterwave V4 OAuth client secret |
+| `FLW_WEBHOOK_SECRET` | secret | The Secret Hash you set in Flutterwave's dashboard |
+| `FLW_ENVIRONMENT` | var | `SANDBOX` (default) or `PRODUCTION` |
+| `FLW_V4_BASE_URL` | var | Required for `PRODUCTION`; sandbox is known |
+| `FLW_ENCRYPTION_KEY` | secret | Held for the card direct-charge flow; nothing sends it today |
 | `PAYSTACK_SECRET_KEY` | secret | Paystack initialisation and verification |
-| `FLUTTERWAVE_SECRET_KEY` | secret | Flutterwave initialisation and verification |
-| `FLUTTERWAVE_WEBHOOK_HASH` | secret | Authenticates Flutterwave webhooks |
 | `GOOGLE_CLIENT_ID` | var | Enables Google sign-in |
 | `APPLE_CLIENT_ID` | var | Enables Apple sign-in |
 
@@ -300,6 +314,10 @@ academy can move the site without a deploy.
 Webhook endpoints to register with each processor:
 
 ```
-POST https://<api-host>/api/payments/webhook/paystack
 POST https://<api-host>/api/payments/webhook/flutterwave
+POST https://<api-host>/api/payments/webhook/paystack
+
+Set the same random string as `FLW_WEBHOOK_SECRET` and as the **Secret Hash**
+in Flutterwave's dashboard. Test and live use separate hashes, so a sandbox
+secret can never validate a production webhook.
 ```

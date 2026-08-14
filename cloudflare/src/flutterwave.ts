@@ -38,6 +38,19 @@ export interface FlutterwaveConfig {
   FLW_CLIENT_SECRET?: string;
   /** Shared secret used to sign webhooks. */
   FLW_WEBHOOK_SECRET?: string;
+  /**
+   * Encryption key, held for the card direct-charge flow.
+   *
+   * Nothing sends it today, and that is deliberate. It exists to encrypt card
+   * data before it reaches Flutterwave, and WEA does not collect card data —
+   * card goes through a redirect precisely so that it never has to. It is
+   * configured here so the credential is in place if that flow is ever
+   * adopted, and so it lives with the other secrets rather than in somebody's
+   * notes.
+   *
+   * It is a secret: server-side only, never in a response, never in the app.
+   */
+  FLW_ENCRYPTION_KEY?: string;
 }
 
 /** The sandbox host, as published in Flutterwave's V4 specification. */
@@ -127,6 +140,8 @@ export interface ResolvedConfig {
   clientId: string;
   clientSecret: string;
   webhookSecret: string;
+  /** Reserved for the card direct-charge flow. Never leaves the Worker. */
+  encryptionKey: string;
   /** False when credentials are missing, in which case nothing is attempted. */
   usable: boolean;
   /** Why it is unusable, for the log. Never shown to a payer. */
@@ -164,6 +179,7 @@ export function resolveConfig(config: FlutterwaveConfig): ResolvedConfig {
     clientId,
     clientSecret,
     webhookSecret: str(config.FLW_WEBHOOK_SECRET),
+    encryptionKey: str(config.FLW_ENCRYPTION_KEY),
     usable: reason === '',
     reason,
   };
@@ -339,6 +355,17 @@ export class FlutterwavePaymentService {
 
   get unusableReason(): string {
     return this.config.reason;
+  }
+
+  /**
+   * Whether an encryption key is configured.
+   *
+   * A boolean, never the value: this is the most that any caller needs to
+   * know, and returning the key itself would be the first step towards it
+   * reaching a response.
+   */
+  get hasEncryptionKey(): boolean {
+    return this.config.encryptionKey !== '';
   }
 
   /**

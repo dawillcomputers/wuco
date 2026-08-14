@@ -127,6 +127,9 @@ export interface Env {
   FLW_CLIENT_ID?: string;
   FLW_CLIENT_SECRET?: string;
   FLW_WEBHOOK_SECRET?: string;
+  // Held for the card direct-charge flow. Nothing sends it: card is a
+  // redirect so that no card data reaches WEA and none needs encrypting.
+  FLW_ENCRYPTION_KEY?: string;
   PAYSTACK_SECRET_KEY?: string;
 
   // OAuth client ids for social sign-in. Not secrets — they are public by
@@ -328,6 +331,7 @@ const paymentSecrets = (env: Env) => ({
   FLW_CLIENT_ID: env.FLW_CLIENT_ID,
   FLW_CLIENT_SECRET: env.FLW_CLIENT_SECRET,
   FLW_WEBHOOK_SECRET: env.FLW_WEBHOOK_SECRET,
+  FLW_ENCRYPTION_KEY: env.FLW_ENCRYPTION_KEY,
   PAYSTACK_SECRET_KEY: env.PAYSTACK_SECRET_KEY,
 });
 

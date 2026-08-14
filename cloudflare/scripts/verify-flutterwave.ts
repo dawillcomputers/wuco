@@ -127,6 +127,43 @@ async function main() {
   const transfer = service.getPaymentMethods(['bank_transfer'])[0];
   check('bank transfer is a direct charge', transfer?.flow === 'directCharge');
 
+  // --- Secrets stay server-side --------------------------------------------
+
+  section('Secrets never leave the Worker');
+
+  const withSecrets = resolveConfig({
+    FLW_CLIENT_ID: 'id-SHOULD-NOT-LEAK',
+    FLW_CLIENT_SECRET: 'secret-SHOULD-NOT-LEAK',
+    FLW_WEBHOOK_SECRET: 'webhook-SHOULD-NOT-LEAK',
+    FLW_ENCRYPTION_KEY: 'encryption-SHOULD-NOT-LEAK',
+  });
+  const secretService = new FlutterwavePaymentService(withSecrets);
+
+  check('the encryption key is stored', withSecrets.encryptionKey !== '');
+  check(
+    'and reported only as a boolean',
+    secretService.hasEncryptionKey === true,
+    'returning the value itself is the first step to it reaching a response',
+  );
+
+  // Everything a client can be handed, serialised, must contain no credential.
+  const clientVisible = JSON.stringify({
+    methods: secretService.getPaymentMethods([
+      'card',
+      'bank_transfer',
+      'ussd',
+      'opay',
+      'nqr',
+      'bank_account',
+    ]),
+    environment: secretService.environment,
+  });
+  check(
+    'no credential appears in anything sent to a client',
+    !clientVisible.includes('SHOULD-NOT-LEAK'),
+    clientVisible.slice(0, 120),
+  );
+
   // --- Webhook signatures --------------------------------------------------
 
   section('Webhook signature (V4: HMAC-SHA256, base64)');

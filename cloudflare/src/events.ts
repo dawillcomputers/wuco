@@ -581,7 +581,12 @@ export async function saveEventRegistration(
   const reference = await nextEventReference(db);
   // Guests get a token so they can come back to their own registration. Only
   // its digest is stored, exactly as for a session.
-  const resumeToken = actor || account?.userId ? null : newToken();
+  // Issued whenever the registrant is not signed in — including when
+  // completing the registration has just created an account for them. The
+  // account is what makes their *next* registration shorter; this token is
+  // what proves the registration is theirs *now*. Withholding it because an
+  // account exists leaves a guest unable to reach their own payment.
+  const resumeToken = actor ? null : newToken();
 
   await db
     .prepare(
@@ -747,7 +752,7 @@ export async function beginEventPayment(
   }
 
   const method = await paymentMethodFor(db, registration.payment_method_id);
-  const provider = providerNameFor(method, secrets);
+  const provider = providerNameFor(method, secrets, str(methodKey));
   const reference = `${str(registration.reference)}-${Date.now().toString(36)}`;
 
   const result = await initialisePayment(method, secrets, {

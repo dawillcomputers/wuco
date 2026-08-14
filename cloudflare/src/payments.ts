@@ -39,6 +39,8 @@ export interface PaymentSecrets {
   FLW_CLIENT_ID?: string;
   FLW_CLIENT_SECRET?: string;
   FLW_WEBHOOK_SECRET?: string;
+  /** Reserved for the card direct-charge flow; nothing sends it today. */
+  FLW_ENCRYPTION_KEY?: string;
   PAYSTACK_SECRET_KEY?: string;
 }
 
@@ -105,7 +107,8 @@ interface PaymentProvider {
   isConfigured(secrets: PaymentSecrets): boolean;
   initialise(
     input: InitialiseInput,
-    method: PaymentMethodRow,
+    /** Null when the event carries no legacy payment method row. */
+    method: PaymentMethodRow | null,
     secrets: PaymentSecrets,
   ): Promise<InitialiseResult>;
   verify(
@@ -302,8 +305,11 @@ const manual: PaymentProvider = {
   async initialise(_input, method) {
     return {
       ok: true,
+      // `method` is null for an event with no configured method row, which is
+      // the ordinary case now that methods are chosen per event. Reading
+      // through it unguarded threw and became a 500.
       instructions:
-        str(method.instructions) ||
+        str(method?.instructions) ||
         'Payment instructions will be sent to you by the academy office.',
     };
   },
@@ -328,7 +334,15 @@ const PROVIDERS: PaymentProvider[] = [paystack, flutterwave, manual];
 export function providerFor(
   method: PaymentMethodRow | null,
   secrets: PaymentSecrets,
+  methodKey?: string,
 ): PaymentProvider {
+  // A payer who chose a method from the event's own list is paying through
+  // Flutterwave: that list is defined in Flutterwave's vocabulary and is only
+  // populated when Flutterwave is configured. This is the ordinary path now —
+  // an event no longer needs a legacy payment_methods row to take money.
+  if (str(methodKey) !== '' && flutterwave.isConfigured(secrets)) {
+    return flutterwave;
+  }
   if (!method || method.kind !== 'GATEWAY') return manual;
   const named = str(method.gateway_provider).toUpperCase();
   const provider = PROVIDERS.find((candidate) => candidate.name === named);
@@ -339,13 +353,15 @@ export function providerFor(
 export const providerNameFor = (
   method: PaymentMethodRow | null,
   secrets: PaymentSecrets,
-): ProviderName => providerFor(method, secrets).name;
+  methodKey?: string,
+): ProviderName => providerFor(method, secrets, methodKey).name;
 
 export const initialisePayment = (
   method: PaymentMethodRow | null,
   secrets: PaymentSecrets,
   input: InitialiseInput,
-): Promise<InitialiseResult> => providerFor(method, secrets).initialise(input, method!, secrets);
+): Promise<InitialiseResult> =>
+  providerFor(method, secrets, input.methodKey).initialise(input, method, secrets);
 
 export const verifyPayment = (
   provider: string,
