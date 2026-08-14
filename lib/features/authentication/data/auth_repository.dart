@@ -1,3 +1,4 @@
+import '../domain/account_status.dart';
 import '../domain/programme_enrolment.dart';
 import '../domain/user_profile.dart';
 import '../domain/user_role.dart';
@@ -43,10 +44,8 @@ abstract interface class AuthRepository {
     required String newPassword,
   });
 
-  Future<void> resendVerification(String email);
 
   /// Confirms an address from the emailed link.
-  Future<UserProfile> verifyEmail(String token);
 
   Future<UserProfile> updateProfile({
     String? firstName,
@@ -71,6 +70,15 @@ abstract interface class AuthRepository {
   });
 
   Future<void> adminDeleteUser(String userId);
+
+  /// Suspends, disables or reactivates an account.
+  ///
+  /// Separate from [adminSetRole] because they answer different questions:
+  /// what somebody may do, and whether they may do anything at all.
+  Future<UserProfile> adminSetStatus({
+    required String userId,
+    required AccountStatus status,
+  });
 
   Future<UserProfile> adminSetRole({
     required String userId,

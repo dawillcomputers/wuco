@@ -8,6 +8,7 @@ import '../../../data/services/public_content_service.dart';
 import '../../../shared/components/wea_brand.dart';
 import '../../../shared/components/wea_components.dart';
 import '../../authentication/application/auth_controller.dart';
+import '../../authentication/domain/account_status.dart';
 import '../../authentication/domain/auth_failure.dart';
 import '../../authentication/domain/user_profile.dart';
 import '../../authentication/domain/user_role.dart';
@@ -170,6 +171,22 @@ class _SuperAdminConsoleState extends ConsumerState<SuperAdminConsole> {
     }
   }
 
+  /// Suspends, disables or reactivates an account.
+  ///
+  /// Suspension is the tool for "stop this person now, decide later": it is
+  /// reversible and keeps everything they have done, where deleting them does
+  /// not.
+  Future<void> _changeStatus(UserProfile user, AccountStatus status) async {
+    if (status == user.status) return;
+    try {
+      await ref.read(authControllerProvider.notifier).setStatus(user.id, status);
+      _reload();
+      _report('${user.email} is now ${status.label.toLowerCase()}.');
+    } on AuthFailure catch (failure) {
+      _report(failure.message, error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -283,6 +300,7 @@ class _SuperAdminConsoleState extends ConsumerState<SuperAdminConsole> {
                     return _UserTable(
                       users: users,
                       onDelete: _deleteUser,
+                      onChangeStatus: _changeStatus,
                       onEnrol: _enrol,
                       onChangeRole: _changeRole,
                     );
@@ -303,12 +321,14 @@ class _UserTable extends StatelessWidget {
     required this.onDelete,
     required this.onEnrol,
     required this.onChangeRole,
+    required this.onChangeStatus,
   });
 
   final List<UserProfile> users;
   final ValueChanged<UserProfile> onDelete;
   final ValueChanged<UserProfile> onEnrol;
   final ValueChanged<UserProfile> onChangeRole;
+  final void Function(UserProfile, AccountStatus) onChangeStatus;
 
   @override
   Widget build(BuildContext context) => DecoratedBox(
@@ -336,6 +356,7 @@ class _UserTable extends StatelessWidget {
                   onDelete: onDelete,
                   onEnrol: onEnrol,
                   onChangeRole: onChangeRole,
+                  onChangeStatus: onChangeStatus,
                 );
                 if (constraints.maxWidth < 620) {
                   return Column(
@@ -423,12 +444,14 @@ class _Actions extends StatelessWidget {
     required this.onDelete,
     required this.onEnrol,
     required this.onChangeRole,
+    required this.onChangeStatus,
   });
 
   final UserProfile user;
   final ValueChanged<UserProfile> onDelete;
   final ValueChanged<UserProfile> onEnrol;
   final ValueChanged<UserProfile> onChangeRole;
+  final void Function(UserProfile, AccountStatus) onChangeStatus;
 
   @override
   Widget build(BuildContext context) => Wrap(
@@ -444,6 +467,26 @@ class _Actions extends StatelessWidget {
         onPressed: () => onChangeRole(user),
         icon: const Icon(Icons.badge_outlined, size: 20),
       ),
+      // Reversible measures first, and the irreversible one last.
+      PopupMenuButton<AccountStatus>(
+        tooltip: 'Change status',
+        icon: const Icon(Icons.toggle_on_outlined, size: 20),
+        onSelected: (status) => onChangeStatus(user, status),
+        itemBuilder: (context) => [
+          for (final status in AccountStatus.values)
+            if (status != user.status && status != AccountStatus.pending)
+              PopupMenuItem(
+                value: status,
+                child: Row(
+                  children: [
+                    Icon(_statusIcon(status), size: 18, color: _statusTone(status)),
+                    const SizedBox(width: WEAInsets.sm),
+                    Text(_statusAction(status)),
+                  ],
+                ),
+              ),
+        ],
+      ),
       IconButton(
         tooltip: 'Delete account',
         onPressed: () => onDelete(user),
@@ -453,6 +496,29 @@ class _Actions extends StatelessWidget {
     ],
   );
 }
+
+/// What choosing a status actually does, in the operator's words.
+String _statusAction(AccountStatus status) => switch (status) {
+  AccountStatus.active => 'Reactivate',
+  AccountStatus.suspended => 'Suspend — they cannot sign in',
+  AccountStatus.disabled => 'Disable permanently',
+  AccountStatus.pendingApproval => 'Hold for approval',
+  AccountStatus.pending => 'Mark pending',
+};
+
+IconData _statusIcon(AccountStatus status) => switch (status) {
+  AccountStatus.active => Icons.check_circle_outline,
+  AccountStatus.suspended => Icons.pause_circle_outline,
+  AccountStatus.disabled => Icons.block,
+  _ => Icons.schedule,
+};
+
+Color _statusTone(AccountStatus status) => switch (status) {
+  AccountStatus.active => WEAColors.success,
+  AccountStatus.suspended => WEAColors.warning,
+  AccountStatus.disabled => WEAColors.error,
+  _ => WEAColors.mutedText,
+};
 
 class _AddUserDialog extends StatefulWidget {
   const _AddUserDialog();

@@ -151,12 +151,14 @@ void main() {
       }
     });
 
-    test('an event manager reaches content management and nothing more', () {
+    test('an event manager reaches content management, not the accounts console', () {
       expect(UserRole.eventManager.canAccess('/super-admin/content'), isTrue);
       // Not the accounts console, which is where roles are handed out.
       expect(UserRole.eventManager.canAccess('/super-admin'), isFalse);
-      expect(UserRole.eventManager.canAccess('/learner'), isFalse);
       expect(UserRole.eventManager.canAccess('/lecturer'), isFalse);
+      // The learner area is open to everybody: an event manager may enrol on
+      // a programme and study it like anyone else.
+      expect(UserRole.eventManager.canAccess('/learner'), isTrue);
     });
 
     test('an event manager does not inherit user administration', () {

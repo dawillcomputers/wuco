@@ -1,3 +1,4 @@
+import '../domain/account_status.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -219,25 +220,6 @@ class CloudflareAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> resendVerification(String email) => _send(
-    'POST',
-    '/api/auth/resend-verification',
-    body: {'email': email.trim()},
-  );
-
-  @override
-  Future<UserProfile> verifyEmail(String token) async {
-    final body = await _send(
-      'POST',
-      '/api/auth/verify-email',
-      body: {'token': token},
-    );
-    final profile = _profile(body);
-    _controller.add(profile);
-    return profile;
-  }
-
-  @override
   Future<UserProfile> updateProfile({
     String? firstName,
     String? lastName,
@@ -295,6 +277,19 @@ class CloudflareAuthRepository implements AuthRepository {
   @override
   Future<void> adminDeleteUser(String userId) =>
       _send('DELETE', '/api/admin/users/$userId');
+
+  @override
+  Future<UserProfile> adminSetStatus({
+    required String userId,
+    required AccountStatus status,
+  }) async {
+    final body = await _send(
+      'PATCH',
+      '/api/admin/users/$userId',
+      body: {'status': status.wireName},
+    );
+    return _profile(body);
+  }
 
   @override
   Future<UserProfile> adminSetRole({

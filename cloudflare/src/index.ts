@@ -6,7 +6,6 @@ import {
   SELF_ASSIGNABLE,
   SESSION_TTL_DAYS,
   Status,
-  VERIFICATION_TTL_HOURS,
   hashPassword,
   isExpired,
   isPasswordAcceptable,
@@ -73,6 +72,14 @@ import {
 } from './events';
 import { EmailTemplate, EmailContext, sendTemplate } from './email';
 import { corsHeaders, fail, json, num, readJson, str } from './http';
+import {
+  assignedProgrammes,
+  canTeach,
+  cohortProgress,
+  openLesson,
+  programmeProgress,
+  recordProgress,
+} from './learning';
 import { deleteMedia, listMedia, serveMedia, uploadMedia } from './media';
 import { readWebhook } from './payments';
 import { shareCard } from './share';
@@ -244,7 +251,7 @@ async function createSession(env: Env, userId: string) {
 async function issueToken(
   env: Env,
   userId: string,
-  purpose: 'EMAIL_VERIFICATION' | 'PASSWORD_RESET',
+  purpose: 'PASSWORD_RESET',
   ttlMs: number,
 ) {
   const token = newToken();
@@ -265,7 +272,7 @@ type ConsumedToken =
 async function consumeToken(
   env: Env,
   token: string,
-  purpose: 'EMAIL_VERIFICATION' | 'PASSWORD_RESET',
+  purpose: 'PASSWORD_RESET',
 ): Promise<ConsumedToken> {
   const tokenHash = await sha256(token);
   const row = await env.WEA_DB.prepare(
@@ -899,42 +906,6 @@ export default {
         return json({ ok: true }, 200, allowed);
       }
 
-      if (method === 'POST' && path === '/api/auth/verify-email') {
-        const body = await readJson(request);
-        const result = await consumeToken(env, str(body.token), 'EMAIL_VERIFICATION');
-        if ('error' in result) return fail(result.error, 400, allowed);
-        await env.WEA_DB.prepare(
-          `UPDATE users
-             SET email_verified = 1,
-                 status = CASE WHEN status = 'PENDING' THEN 'ACTIVE' ELSE status END,
-                 updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?1`,
-        )
-          .bind(result.userId)
-          .run();
-        const row = await findUserById(env, result.userId);
-        return json({ profile: toProfile(row!) }, 200, allowed);
-      }
-
-      if (method === 'POST' && path === '/api/auth/resend-verification') {
-        const body = await readJson(request);
-        const user = await findUserByEmail(env, str(body.email));
-        let token: string | undefined;
-        if (user && user.email_verified === 0) {
-          token = await issueToken(
-            env,
-            user.id,
-            'EMAIL_VERIFICATION',
-            VERIFICATION_TTL_HOURS * 3_600_000,
-          );
-        }
-        return json(
-          { ok: true, verification_token: devToken(env, token) },
-          200,
-          allowed,
-        );
-      }
-
       // --- Authenticated ---------------------------------------------------
 
       const actor = await authenticate(request, env);
@@ -1356,6 +1327,76 @@ export default {
           200,
           allowed,
         );
+      }
+
+      // --- Learning --------------------------------------------------------
+      //
+      // Progress lives in the database, and the gate on a locked lesson is
+      // enforced here. An interface that hides the next button is a courtesy;
+      // this is the control.
+
+      const progressMatch = path.match(/^\/api\/learning\/programmes\/([^/]+)$/);
+      if (method === 'GET' && progressMatch) {
+        const result = await programmeProgress(
+          env.WEA_DB,
+          actor.id,
+          decodeURIComponent(progressMatch[1]),
+        );
+        if (!result) return fail('NOT_FOUND', 404, allowed);
+        return json(result, 200, allowed);
+      }
+
+      const openMatch = path.match(/^\/api\/learning\/lessons\/([^/]+)$/);
+      if (method === 'GET' && openMatch) {
+        const result = await openLesson(
+          env.WEA_DB,
+          actor.id,
+          decodeURIComponent(openMatch[1]),
+        );
+        if (!result.ok) {
+          return fail(
+            result.code!,
+            result.code === 'NOT_FOUND'
+              ? 404
+              : result.code === 'NOT_ENROLLED'
+                ? 403
+                : 409,
+            allowed,
+            result.message,
+          );
+        }
+        return json(result.data, 200, allowed);
+      }
+
+      const recordMatch = path.match(/^\/api\/learning\/lessons\/([^/]+)\/progress$/);
+      if (method === 'POST' && recordMatch) {
+        const result = await recordProgress(
+          env.WEA_DB,
+          actor.id,
+          decodeURIComponent(recordMatch[1]),
+          await readJson(request),
+        );
+        if (!result.ok) return fail(result.code!, 404, allowed);
+        return json(result.data, 200, allowed);
+      }
+
+      // --- Teaching ----------------------------------------------------------
+
+      if (method === 'GET' && path === '/api/teaching/programmes') {
+        return json(
+          { programmes: await assignedProgrammes(env.WEA_DB, actor.id) },
+          200,
+          allowed,
+        );
+      }
+
+      const cohortMatch = path.match(/^\/api\/teaching\/programmes\/([^/]+)\/cohort$/);
+      if (method === 'GET' && cohortMatch) {
+        const programmeId = decodeURIComponent(cohortMatch[1]);
+        if (!(await canTeach(env.WEA_DB, actor, programmeId))) {
+          return fail('NOT_AUTHORISED', 403, allowed);
+        }
+        return json(await cohortProgress(env.WEA_DB, programmeId), 200, allowed);
       }
 
       // --- Enrolments ------------------------------------------------------

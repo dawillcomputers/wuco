@@ -58,7 +58,7 @@ void main() {
       }
     });
 
-    test('other roles are turned away from the learner area', () {
+    test('other roles may also study, keeping their own access', () {
       for (final role in const [
         UserRole.lecturer,
         UserRole.admin,
@@ -66,12 +66,14 @@ void main() {
         UserRole.professionalMember,
       ]) {
         final auth = AuthState.authenticated(testAccount(role: role));
+        // Roles are additive: anybody may enrol and study, and holds full
+        // learner rights in what they enrolled on without losing their own.
         expect(
           guardLocation(auth, '/learner'),
-          role.landingRoute,
-          reason: '${role.label} must not reach the learner dashboard',
+          isNull,
+          reason: '${role.label} should be able to study too',
         );
-        expect(guardLocation(auth, '/learner/results'), role.landingRoute);
+        expect(guardLocation(auth, '/learner/results'), isNull);
       }
     });
 

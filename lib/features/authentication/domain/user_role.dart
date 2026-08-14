@@ -78,9 +78,10 @@ enum UserRole {
     if (route.startsWith('/lecturer')) {
       return this == UserRole.lecturer || this == UserRole.superAdmin;
     }
-    if (route.startsWith('/learner')) {
-      return this == UserRole.learner || this == UserRole.superAdmin;
-    }
+    // Open to every signed-in account. Roles are additive: anyone may enrol
+    // on a programme or register for an event and hold full learner rights
+    // in it while keeping the access their own role gives them.
+    if (route.startsWith('/learner')) return true;
     return true;
   }
 }

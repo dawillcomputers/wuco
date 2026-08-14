@@ -29,7 +29,6 @@ class InMemoryAuthRepository implements AuthRepository {
   final _users = <String, _Account>{};
   final _enrolments = <ProgrammeEnrolment>[];
   final _resetTokens = <String, String>{};
-  final _verificationTokens = <String, String>{};
   final _random = Random.secure();
 
   String? _currentUserId;
@@ -161,14 +160,16 @@ class InMemoryAuthRepository implements AuthRepository {
         phone: phone,
         country: country,
         role: safeRole,
-        status: AccountStatus.pending,
+        // Active and verified on creation, matching the live API: email
+        // verification has been removed from WEA.
+        status: AccountStatus.active,
+        emailVerified: true,
         createdAt: DateTime.now(),
       ),
       salt: _newSalt(),
     ).._setPassword(password);
     _users[key] = account;
 
-    _verificationTokens[_newId()] = key;
     _currentUserId = account.profile.id;
     _emit();
     return account.profile;
@@ -229,34 +230,6 @@ class InMemoryAuthRepository implements AuthRepository {
     account.profile = account.profile.copyWith(mustChangePassword: false);
     _emit();
   }
-
-  @override
-  Future<void> resendVerification(String email) async {
-    final key = email.trim().toLowerCase();
-    if (_users.containsKey(key)) {
-      _verificationTokens[_newId()] = key;
-    }
-  }
-
-  @override
-  Future<UserProfile> verifyEmail(String token) async {
-    final email = _verificationTokens[token] ?? _currentEmail();
-    final account = email == null ? null : _users[email];
-    if (account == null) {
-      throw const AuthFailure(AuthFailureKind.invalidLink);
-    }
-    account.profile = account.profile.copyWith(
-      emailVerified: true,
-      status: account.profile.status == AccountStatus.pending
-          ? AccountStatus.active
-          : account.profile.status,
-    );
-    _verificationTokens.remove(token);
-    _emit();
-    return account.profile;
-  }
-
-  String? _currentEmail() => _requireCurrent()?.profile.email;
 
   @override
   Future<UserProfile> updateProfile({
@@ -333,6 +306,22 @@ class InMemoryAuthRepository implements AuthRepository {
     }
     _users.removeWhere((_, account) => account.profile.id == userId);
     _enrolments.removeWhere((enrolment) => enrolment.userId == userId);
+  }
+
+  @override
+  Future<UserProfile> adminSetStatus({
+    required String userId,
+    required AccountStatus status,
+  }) async {
+    _requireSuperAdmin();
+    for (final account in _users.values) {
+      if (account.profile.id == userId) {
+        account.profile = account.profile.copyWith(status: status);
+        _emit();
+        return account.profile;
+      }
+    }
+    throw const AuthFailure(AuthFailureKind.unknown, 'That account no longer exists.');
   }
 
   @override

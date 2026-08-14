@@ -103,12 +103,6 @@ class FakeAuthRepository implements AuthRepository {
   }) => _unsupported();
 
   @override
-  Future<void> resendVerification(String email) => _unsupported();
-
-  @override
-  Future<UserProfile> verifyEmail(String token) => _unsupported();
-
-  @override
   Future<List<UserProfile>> listUsers() => _unsupported();
 
   @override
@@ -121,6 +115,12 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<void> adminDeleteUser(String userId) => _unsupported();
+
+  @override
+  Future<UserProfile> adminSetStatus({
+    required String userId,
+    required AccountStatus status,
+  }) => _unsupported();
 
   @override
   Future<UserProfile> adminSetRole({

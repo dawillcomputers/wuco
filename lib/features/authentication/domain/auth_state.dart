@@ -16,14 +16,10 @@ sealed class AuthState {
 
   const factory AuthState.authenticated(UserProfile profile) = Authenticated;
 
-  const factory AuthState.emailUnverified(UserProfile profile) =
-      AuthEmailUnverified;
-
   const factory AuthState.error(AuthFailure failure) = AuthError;
 
   UserProfile? get profile => switch (this) {
     Authenticated(:final profile) => profile,
-    AuthEmailUnverified(:final profile) => profile,
     _ => null,
   };
 
@@ -49,12 +45,6 @@ class AuthUnauthenticated extends AuthState {
 
 class Authenticated extends AuthState {
   const Authenticated(this.profile);
-  @override
-  final UserProfile profile;
-}
-
-class AuthEmailUnverified extends AuthState {
-  const AuthEmailUnverified(this.profile);
   @override
   final UserProfile profile;
 }

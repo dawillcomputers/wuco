@@ -5,6 +5,7 @@ import '../data/auth_repository.dart';
 import '../data/cloudflare_auth_repository.dart';
 import '../data/in_memory_auth_repository.dart';
 import '../data/session_store.dart';
+import '../domain/account_status.dart';
 import '../domain/auth_failure.dart';
 import '../domain/auth_state.dart';
 import '../domain/programme_enrolment.dart';
@@ -160,21 +161,6 @@ class AuthController extends Notifier<AuthState> {
     }, loadingMessage: 'Updating password…');
   }
 
-  Future<bool> resendVerification() {
-    final email = state.profile?.email;
-    if (email == null) return Future.value(false);
-    final previous = state;
-    return _guard(() async {
-      await _repository.resendVerification(email);
-      state = previous;
-    });
-  }
-
-  Future<bool> verifyEmail(String token) => _guard(() async {
-    final profile = await _repository.verifyEmail(token);
-    state = _stateFor(profile);
-  }, loadingMessage: 'Verifying your email…');
-
   Future<bool> updateProfile({
     String? firstName,
     String? lastName,
@@ -220,6 +206,9 @@ class AuthController extends Notifier<AuthState> {
 
   Future<UserProfile> setRole(String userId, UserRole role) =>
       _repository.adminSetRole(userId: userId, role: role);
+
+  Future<UserProfile> setStatus(String userId, AccountStatus status) =>
+      _repository.adminSetStatus(userId: userId, status: status);
 
   Future<List<ProgrammeEnrolment>> enrolments({String? userId}) =>
       _repository.listEnrolments(userId: userId);

@@ -10,7 +10,6 @@
 export const PBKDF2_ITERATIONS = 100_000;
 export const SESSION_TTL_DAYS = 14;
 export const RESET_TTL_MINUTES = 60;
-export const VERIFICATION_TTL_HOURS = 24;
 
 export type Role =
   | 'APPLICANT'
@@ -186,6 +185,10 @@ export function canAccessRoute(role: Role, route: string): boolean {
     return role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'EVENT_MANAGER';
   }
   if (route.startsWith('/lecturer')) return role === 'LECTURER' || role === 'SUPER_ADMIN';
-  if (route.startsWith('/learner')) return role === 'LEARNER' || role === 'SUPER_ADMIN';
+  // The learner area is open to every signed-in account. Anyone may enrol on
+  // a programme or register for an event and hold full learner rights in it,
+  // without giving up the role they already have — a lecturer studying
+  // somebody else's course is still a lecturer.
+  if (route.startsWith('/learner')) return true;
   return true;
 }

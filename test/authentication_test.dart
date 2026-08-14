@@ -41,12 +41,14 @@ void main() {
   });
 
   group('registration', () {
-    test('creates a pending, unverified applicant', () async {
+    test('creates an active applicant, ready to use immediately', () async {
+      // Email verification has been removed: a new registrant can act at
+      // once rather than waiting on a link.
       final profile = await _register(repository);
       expect(profile.email, 'learner@example.com');
       expect(profile.role, UserRole.applicant);
-      expect(profile.status, AccountStatus.pending);
-      expect(profile.emailVerified, isFalse);
+      expect(profile.status, AccountStatus.active);
+      expect(profile.emailVerified, isTrue);
     });
 
     test('rejects a duplicate email', () async {
@@ -115,21 +117,8 @@ void main() {
       expect((wrongError as AuthFailure).kind, AuthFailureKind.invalidCredentials);
     });
 
-    test('blocks a pending account until the email is verified', () async {
-      await _register(repository);
-      await repository.signOut();
-      expect(
-        () => repository.signIn(
-          email: 'learner@example.com',
-          password: _validPassword,
-        ),
-        throwsA(isA<AuthFailure>()),
-      );
-    });
-
-    test('succeeds once verified, and restores the session', () async {
+    test('signs in straight after registering, and restores the session', () async {
       final profile = await _register(repository);
-      await repository.verifyEmail('any');
       await repository.signOut();
 
       final signedIn = await repository.signIn(
@@ -396,7 +385,7 @@ void main() {
         ),
       );
       expect(guardLocation(state, '/application'), isNull);
-      expect(guardLocation(state, '/verify-email'), isNull);
+      expect(guardLocation(state, '/learner'), isNull);
     });
 
     test('each role lands on its own destination', () {
