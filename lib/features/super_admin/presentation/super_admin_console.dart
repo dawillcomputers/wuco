@@ -12,6 +12,27 @@ import '../../authentication/domain/auth_failure.dart';
 import '../../authentication/domain/user_profile.dart';
 import '../../authentication/domain/user_role.dart';
 
+/// The roles the signed-in administrator is actually allowed to grant.
+///
+/// Only an owner may hand out administrative authority. Offering a role the
+/// API will refuse produces a 403 the operator cannot act on, so the choice is
+/// narrowed here to match — the API still decides, this only stops the
+/// interface promising something it cannot deliver.
+List<UserRole> _grantableRoles(BuildContext context) {
+  // Read through the container rather than a WidgetRef: these pickers live in
+  // plain dialogs, and this keeps the rule in one place instead of threading
+  // the actor's role through every constructor.
+  final actor = ProviderScope.containerOf(
+    context,
+    listen: false,
+  ).read(currentRoleProvider);
+  if (actor == UserRole.owner) return UserRole.values;
+  return [
+    for (final role in UserRole.values)
+      if (!role.isPrivileged) role,
+  ];
+}
+
 /// Minimal Super Admin console: account administration and programme places.
 ///
 /// The full Super Admin dashboard belongs to a later module. This covers only
@@ -501,7 +522,7 @@ class _AddUserDialogState extends State<_AddUserDialog> {
               initialValue: _role,
               decoration: const InputDecoration(labelText: 'Role'),
               items: [
-                for (final role in UserRole.values)
+                for (final role in _grantableRoles(context))
                   DropdownMenuItem(value: role, child: Text(role.label)),
               ],
               onChanged: (value) => setState(() => _role = value ?? _role),
@@ -615,7 +636,7 @@ class _RoleDialogState extends State<_RoleDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (final role in UserRole.values)
+            for (final role in _grantableRoles(context))
               RadioListTile<UserRole>(
                 value: role,
                 title: Text(role.label),

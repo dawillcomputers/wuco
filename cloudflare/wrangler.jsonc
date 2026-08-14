@@ -16,7 +16,22 @@
   "vars": {
     "ALLOWED_ORIGIN": "https://wuco.pages.dev",
     // Account created by the one-time /api/auth/bootstrap call.
-    "SUPERADMIN_EMAIL": "proptgoservices@gmail.com"
+    "SUPERADMIN_EMAIL": "proptgoservices@gmail.com",
+
+    // ---------------------------------------------------------------------
+    // PAYMENTS ARE LIVE. Every payment taken through this deployment charges
+    // a real card and moves real money.
+    //
+    // To return to testing, set FLW_ENVIRONMENT to SANDBOX and remove
+    // FLW_V4_BASE_URL — the sandbox host is known and applied automatically.
+    //
+    // Neither of these is a secret, so they live here rather than in
+    // `wrangler secret`: what environment the academy is charging in should be
+    // reviewable in version control, not hidden. The credentials themselves
+    // remain secrets.
+    // ---------------------------------------------------------------------
+    "FLW_ENVIRONMENT": "PRODUCTION",
+    "FLW_V4_BASE_URL": "https://f4bexperience.flutterwave.com"
   },
   // BOOTSTRAP_TOKEN is a secret, not a var. Set it with:
   //   npx wrangler secret put BOOTSTRAP_TOKEN
