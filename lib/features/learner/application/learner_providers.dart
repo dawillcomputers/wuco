@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/services/app_environment.dart';
 import '../../authentication/application/auth_controller.dart';
 import '../../authentication/domain/user_profile.dart';
+import '../data/api_learner_repositories.dart';
 import '../data/learner_repositories.dart';
 import '../data/mock/mock_learner_data.dart';
 import '../data/mock/mock_learner_repositories.dart';
@@ -17,23 +19,52 @@ import '../domain/learner_records.dart';
 /// lesson in one screen is visible in all the others.
 final _storeProvider = Provider<MockLearnerStore>((ref) => MockLearnerStore());
 
+/// The learner's own study, from the API.
+///
+/// One instance, so the programme structure it assembles is shared by every
+/// screen rather than fetched again for each.
+final _apiLearnerProvider = Provider<ApiLearnerRepositories>(
+  (ref) => ApiLearnerRepositories(
+    baseUrl: AppEnvironmentConfig.apiBaseUrl,
+    sessionStore: ref.watch(sessionStoreProvider),
+  ),
+);
+
 // --- Repositories ---------------------------------------------------------
-// Overriding these is the whole swap to a real backend; nothing else changes.
+//
+// Programmes, courses, lessons and progress come from the API wherever one is
+// configured; the offline development backend answers otherwise.
+//
+// The rest are still the mock store, and honestly so: assessments,
+// certificates, credentials, CPD and notifications have no tables behind them
+// yet. Pointing them at an API that cannot answer would replace visible
+// placeholder data with invisible emptiness, which is worse.
+
+/// True when the study repositories are answering from the live API.
+bool get _live => AppEnvironmentConfig.hasApiConfiguration;
 
 final learnerRepositoryProvider = Provider<LearnerRepository>(
   (ref) => MockLearnerRepository(ref.watch(_storeProvider)),
 );
 final programmeRepositoryProvider = Provider<ProgrammeRepository>(
-  (ref) => MockProgrammeRepository(ref.watch(_storeProvider)),
+  (ref) => _live
+      ? ref.watch(_apiLearnerProvider)
+      : MockProgrammeRepository(ref.watch(_storeProvider)),
 );
 final courseRepositoryProvider = Provider<CourseRepository>(
-  (ref) => MockCourseRepository(ref.watch(_storeProvider)),
+  (ref) => _live
+      ? ref.watch(_apiLearnerProvider)
+      : MockCourseRepository(ref.watch(_storeProvider)),
 );
 final lessonRepositoryProvider = Provider<LessonRepository>(
-  (ref) => MockLessonRepository(ref.watch(_storeProvider)),
+  (ref) => _live
+      ? ref.watch(_apiLearnerProvider)
+      : MockLessonRepository(ref.watch(_storeProvider)),
 );
 final progressRepositoryProvider = Provider<ProgressRepository>(
-  (ref) => MockProgressRepository(ref.watch(_storeProvider)),
+  (ref) => _live
+      ? ref.watch(_apiLearnerProvider)
+      : MockProgressRepository(ref.watch(_storeProvider)),
 );
 final preferencesRepositoryProvider = Provider<PreferencesRepository>(
   (ref) => MockPreferencesRepository(ref.watch(_storeProvider)),
