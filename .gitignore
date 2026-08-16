@@ -48,3 +48,5 @@ app.*.map.json
 cloudflare/.dev.vars
 cloudflare/.wrangler/
 cloudflare/node_modules/
+# Wrangler also caches here when run from the repository root.
+/.wrangler/

@@ -199,7 +199,7 @@ class _SuperAdminConsoleState extends ConsumerState<SuperAdminConsole> {
         elevation: 0,
         toolbarHeight: 84,
         titleSpacing: WEAInsets.lg,
-        title: const WEABrandLockup(height: 56, onDark: true),
+        title: const WEABrandLockup(height: 56, onDark: true, linkToHome: true),
         actions: [
           TextButton(
             onPressed: () => context.go('/super-admin/content'),

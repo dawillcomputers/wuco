@@ -53,9 +53,9 @@ import {
 } from './permissions';
 import {
   beginEventPayment,
-  enabledPaymentMethods,
   eventOverview,
   eventRegistrationContext,
+  feeTiersFor,
   exportEventRegistrations,
   findOwnedRegistration,
   getEvent,
@@ -82,10 +82,47 @@ import {
 } from './learning';
 import { deleteMedia, listMedia, serveMedia, uploadMedia } from './media';
 import { readWebhook } from './payments';
+import {
+  AttendanceMode,
+  countryOf,
+  offeredModes,
+  pricesFor,
+  pricesToJson,
+  suggestedCurrency,
+  tierFor,
+  tiersToJson,
+} from './pricing';
 import { shareCard } from './share';
 import {
+  cancelLiveEvent,
+  createLiveEvent,
+  endLiveEvent,
+  isAudienceVisible,
+  listLiveEvents,
+  liveEventIngestion,
+  liveEventRow,
+  liveEventStatus,
+  liveEventToJson,
+  startLiveEvent,
+} from './live';
+import {
+  beginVideoUpload,
+  completeVideoUpload,
+  deleteVideo,
+  listVideos,
+  mayManage,
+  updateVideo,
+  videoToJson,
+} from './videos';
+import { channelInfo, resolveYouTubeConfig } from './youtube';
+import {
+  completeConnection,
+  connectionStatus,
+  removeConnection,
+  startConnection,
+} from './youtube_connection';
+import {
   beginTuitionPayment,
-  enabledTuitionMethods,
   latestTuitionPayment,
   settleTuitionPayment,
 } from './tuition';
@@ -109,6 +146,14 @@ export interface Env {
   WEA_DB: D1Database;
   /** Uploaded programme and faculty imagery. */
   WEA_MEDIA: R2Bucket;
+  /**
+   * Credentials and short-lived state that must never reach D1: the YouTube
+   * refresh token, the cached access token, and single-use OAuth states.
+   *
+   * Kept out of the database on purpose. A database export is a routine thing
+   * for an academy to hold; a set of keys to its YouTube channel is not.
+   */
+  WUCO_TOKENS: KVNamespace;
   ALLOWED_ORIGIN: string;
   /** Secret guarding the one-time Super Admin bootstrap. */
   BOOTSTRAP_TOKEN?: string;
@@ -149,6 +194,17 @@ export interface Env {
   // design — but a provider without one is not offered.
   GOOGLE_CLIENT_ID?: string;
   APPLE_CLIENT_ID?: string;
+
+  // The Google OAuth client WUCO uses to act on the academy's YouTube channel.
+  //
+  // GOOGLE_CLIENT_SECRET is a secret and must be set with `wrangler secret
+  // put`, never in wrangler.jsonc. GOOGLE_REDIRECT_URI must match the
+  // authorised redirect registered on the Google client exactly, including
+  // scheme and path — Google compares it as a literal string.
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REDIRECT_URI?: string;
+  /** Where the callback sends the administrator's browser when it is done. */
+  ADMIN_SITE_URL?: string;
 
   /**
    * Salt for the rotating visitor digest used by analytics. Set it per
@@ -359,6 +415,62 @@ async function publicSiteUrl(env: Env): Promise<string> {
     "SELECT value FROM site_settings WHERE key = 'public_site_url'",
   ).first<{ value: string }>();
   return str(row?.value) || str(env.PUBLIC_SITE_URL) || env.ALLOWED_ORIGIN;
+}
+
+/** Escapes text bound for the one HTML page this API serves. */
+const escapeHtml = (text: string) =>
+  text.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[character]!,
+  );
+
+/**
+ * What the administrator sees after Google sends them back.
+ *
+ * A person is looking at this, not a client library, so it answers in a
+ * sentence and offers a way back — and on failure it names the reason Google
+ * or WUCO gave, because "something went wrong" turns a fixable configuration
+ * mistake into a support request.
+ */
+function connectionResultPage(
+  result: { ok: boolean; message?: string; data?: Record<string, unknown> },
+  back: string,
+): string {
+  const connection = (result.data?.connection ?? {}) as Record<string, unknown>;
+  const heading = result.ok ? 'YouTube connected' : 'YouTube not connected';
+  const detail = result.ok
+    ? `WUCO is now connected to <strong>${escapeHtml(
+        str(connection.channel_title) || 'the channel',
+      )}</strong>. You can close this tab.`
+    : escapeHtml(result.message ?? 'The authorisation could not be completed.');
+
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(heading)} — WUCO Executive Academy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+         background: Canvas; color: CanvasText; padding: 24px; }
+  main { max-width: 32rem; text-align: center; }
+  h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+  p { margin: 0 0 1.5rem; opacity: .85; }
+  a { display: inline-block; padding: .625rem 1.25rem; border-radius: .5rem;
+      background: CanvasText; color: Canvas; text-decoration: none; font-weight: 600; }
+</style></head>
+<body><main>
+  <h1>${escapeHtml(heading)}</h1>
+  <p>${detail}</p>
+  <a href="${escapeHtml(back)}">Back to WUCO</a>
+</main></body></html>`;
 }
 
 /**
@@ -604,18 +716,38 @@ export default {
       );
       if (method === 'GET' && tuitionMethodsMatch) {
         const programme = await env.WEA_DB.prepare(
-          'SELECT id FROM programmes WHERE (id = ?1 OR slug = ?1) AND status = ?2',
+          `SELECT id, tuition_amount, tuition_currency, prices
+             FROM programmes
+            WHERE (id = ?1 OR slug = ?1) AND status = ?2`,
         )
           .bind(decodeURIComponent(tuitionMethodsMatch[1]), 'PUBLISHED')
-          .first<{ id: string }>();
+          .first<Record<string, unknown>>();
         if (!programme) return fail('NOT_FOUND', 404, allowed);
-        const methods = await enabledTuitionMethods(
-          env.WEA_DB,
-          programme.id,
+
+        const tuitionPrices = pricesFor(
+          programme,
+          'tuition_amount',
+          'tuition_currency',
+        );
+        // The payer's own choice wins; where they have not made one, where
+        // they are is only the opening suggestion.
+        const tuitionSuggested = suggestedCurrency(
+          tuitionPrices,
+          countryOf(request),
+        );
+        const tuitionCurrency =
+          str(url.searchParams.get('currency')).toUpperCase() ||
+          tuitionSuggested;
+
+        const methods = FlutterwavePaymentService.offeredFor(
           paymentSecrets(env),
+          tuitionCurrency,
         );
         return json(
           {
+            prices: pricesToJson(tuitionPrices),
+            currency: tuitionCurrency,
+            suggested_currency: tuitionSuggested,
             methods: methods.map((option) => ({
               key: option.key,
               label: option.label,
@@ -664,19 +796,59 @@ export default {
       const methodsMatch = path.match(/^\/api\/events\/([^/]+)\/payment-methods$/);
       if (method === 'GET' && methodsMatch) {
         const event = await env.WEA_DB.prepare(
-          'SELECT id FROM events WHERE id = ?1 OR slug = ?1',
+          'SELECT id, format, fee_amount, fee_currency, prices FROM events WHERE id = ?1 OR slug = ?1',
         )
           .bind(decodeURIComponent(methodsMatch[1]))
-          .first<{ id: string }>();
+          .first<Record<string, unknown>>();
         if (!event) return fail('NOT_FOUND', 404, allowed);
 
-        const methods = await enabledPaymentMethods(
-          env.WEA_DB,
-          event.id,
+        // Which tier applies is decided here, from the date and from how the
+        // registrant says they are attending — never from a tier named in the
+        // request, which is what stops the early rate being claimed after it
+        // has closed.
+        const tiers = await feeTiersFor(env.WEA_DB, str(event.id));
+        const modes = offeredModes(tiers, str(event.format));
+        const askedMode = str(url.searchParams.get('attendance_mode')).toUpperCase();
+        const eventMode =
+          modes.length === 0
+            ? ''
+            : modes.includes(askedMode as AttendanceMode)
+              ? askedMode
+              : modes[0];
+
+        const tier = tierFor(tiers, eventMode);
+        const eventPrices = tier?.prices ?? [];
+        // The payer's own choice wins; where they have not made one, where
+        // they are is only the opening suggestion.
+        const eventSuggested = suggestedCurrency(eventPrices, countryOf(request));
+        const eventCurrency =
+          str(url.searchParams.get('currency')).toUpperCase() || eventSuggested;
+
+        const methods = FlutterwavePaymentService.offeredFor(
           paymentSecrets(env),
+          eventCurrency,
         );
         return json(
           {
+            prices: pricesToJson(eventPrices),
+            currency: eventCurrency,
+            suggested_currency: eventSuggested,
+            // What the registrant is being charged and why, so the interface
+            // can say "Early Bird — closes 30 September" rather than showing a
+            // number that changes on a date with no explanation.
+            tier: tier
+              ? {
+                  label: tier.label,
+                  attendance_mode: tier.mode,
+                  available_until: tier.availableUntil || null,
+                }
+              : null,
+            attendance_mode: eventMode,
+            // Empty on an event with one way to attend: there is nothing to ask.
+            attendance_modes: modes,
+            // The whole fee table, so a registrant can see what they would pay
+            // the other way round and what the rate becomes later.
+            fee_tiers: tiersToJson(tiers),
             methods: methods.map((option) => ({
               key: option.key,
               label: option.label,
@@ -1137,13 +1309,17 @@ export default {
           resumeTokenOf(request),
         );
         if (!registration) return fail('NOT_FOUND', 404, allowed);
+        const paymentBody = await readJson(request);
         const site = await publicSiteUrl(env);
         const result = await beginEventPayment(
           env.WEA_DB,
           registration,
           paymentSecrets(env),
           `${site.replace(/\/$/, '')}/events/registration/${registration.reference}`,
-          str((await readJson(request)).payment_method),
+          str(paymentBody.payment_method),
+          str(paymentBody.currency),
+          countryOf(request),
+          str(paymentBody.attendance_mode),
         );
         if (!result.ok) {
           return fail(result.code!, result.code === 'ALREADY_PAID' ? 409 : 400, allowed, result.message);
@@ -1235,6 +1411,31 @@ export default {
         return json({ ok: true }, 200, allowed);
       }
 
+      /**
+       * Google's redirect after the owner has consented.
+       *
+       * This one sits outside the sign-in gate because it cannot pass it:
+       * Google sends the administrator's *browser* here, with no Authorization
+       * header. What authorises it instead is the `state` — single-use, stored
+       * server-side when the flow began, and tied to the account that started
+       * it. Without that check this endpoint would let anyone who could get an
+       * owner to open a link attach their own channel to the academy.
+       *
+       * It answers with a page rather than JSON, because a person is looking
+       * at it.
+       */
+      if (method === 'GET' && path === '/api/auth/youtube/callback') {
+        const result = await completeConnection(env, url.searchParams);
+        const back = str(env.ADMIN_SITE_URL) || (await publicSiteUrl(env));
+        return new Response(
+          connectionResultPage(result, back.replace(/\/$/, '')),
+          {
+            status: result.ok ? 200 : 400,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          },
+        );
+      }
+
       if (!actor) {
         if (
           path.startsWith('/api/auth/') ||
@@ -1248,6 +1449,9 @@ export default {
           path.startsWith('/api/learning/') ||
           path.startsWith('/api/teaching/') ||
           path.startsWith('/api/my/') ||
+          path.startsWith('/api/youtube/') ||
+          path.startsWith('/api/videos') ||
+          path.startsWith('/api/live') ||
           path === '/api/profile' ||
           path === '/api/enrolments'
         ) {
@@ -1519,13 +1723,16 @@ export default {
           .first<Record<string, unknown>>();
         if (!registration) return fail('NOT_FOUND', 404, allowed);
 
+        const tuitionBody = await readJson(request);
         const site = await publicSiteUrl(env);
         const result = await beginTuitionPayment(
           env.WEA_DB,
           registration,
           paymentSecrets(env),
           `${site.replace(/\/$/, '')}/register/${registration.programme_id}`,
-          str((await readJson(request)).payment_method),
+          str(tuitionBody.payment_method),
+          str(tuitionBody.currency),
+          countryOf(request),
         );
         if (!result.ok) {
           return fail(
@@ -1574,6 +1781,273 @@ export default {
           await mailTuitionConfirmed(env, mail, reference);
         }
         return json(result.data, 200, allowed);
+      }
+
+      // --- YouTube: the channel connection ---------------------------------
+      //
+      // Connecting decides where every academy video will live from then on,
+      // so it is held at `platform.integrations` — the owner's permission, not
+      // an administrative convenience.
+
+      if (path.startsWith('/api/youtube/')) {
+        const holder = { id: actor.id, role: actor.role as PermissionRole };
+        if (!can(holder, 'platform.integrations')) {
+          return fail('NOT_AUTHORISED', 403, allowed);
+        }
+
+        if (method === 'POST' && path === '/api/youtube/connect') {
+          const result = await startConnection(env, actor.id);
+          if (!result.ok) return fail(result.code!, 400, allowed, result.message);
+          return json(result.data, 200, allowed);
+        }
+
+        if (method === 'GET' && path === '/api/youtube/status') {
+          const result = await connectionStatus(env);
+          return json(result.data, 200, allowed);
+        }
+
+        if (method === 'POST' && path === '/api/youtube/disconnect') {
+          await removeConnection(env);
+          return json({ ok: true }, 200, allowed);
+        }
+
+        if (method === 'GET' && path === '/api/youtube/channel') {
+          const result = await channelInfo(env, resolveYouTubeConfig(env));
+          if (!result.ok) return fail(result.code!, 503, allowed, result.message);
+          return json(
+            { channel: { id: result.id, title: result.title } },
+            200,
+            allowed,
+          );
+        }
+      }
+
+      // --- Video -----------------------------------------------------------
+
+      if (method === 'POST' && path === '/api/videos/upload') {
+        if (!can({ id: actor.id, role: actor.role as PermissionRole }, 'video.upload')) {
+          return fail('NOT_AUTHORISED', 403, allowed);
+        }
+        const result = await beginVideoUpload(
+          env,
+          resolveYouTubeConfig(env),
+          { id: actor.id, role: actor.role as PermissionRole },
+          await readJson(request),
+        );
+        if (!result.ok) {
+          return fail(
+            result.code!,
+            result.code === 'YOUTUBE_NOT_CONNECTED' ||
+              result.code === 'YOUTUBE_NOT_CONFIGURED' ||
+              result.code === 'YOUTUBE_RECONNECT_REQUIRED'
+              ? 503
+              : 400,
+            allowed,
+            result.message,
+          );
+        }
+        return json(result.data, 201, allowed);
+      }
+
+      if (method === 'GET' && path === '/api/videos') {
+        if (!can({ id: actor.id, role: actor.role as PermissionRole }, 'video.upload')) {
+          return fail('NOT_AUTHORISED', 403, allowed);
+        }
+        return json(
+          {
+            videos: await listVideos(
+              env.WEA_DB,
+              { id: actor.id, role: actor.role as PermissionRole },
+              url.searchParams,
+            ),
+          },
+          200,
+          allowed,
+        );
+      }
+
+      const videoCompleteMatch = path.match(/^\/api\/videos\/([^/]+)\/complete$/);
+      if (method === 'POST' && videoCompleteMatch) {
+        const result = await completeVideoUpload(
+          env,
+          resolveYouTubeConfig(env),
+          { id: actor.id, role: actor.role as PermissionRole },
+          decodeURIComponent(videoCompleteMatch[1]),
+          str((await readJson(request)).youtube_video_id),
+        );
+        if (!result.ok) {
+          return fail(
+            result.code!,
+            result.code === 'NOT_FOUND' ? 404 : result.code === 'FORBIDDEN' ? 403 : 400,
+            allowed,
+            result.message,
+          );
+        }
+        return json(result.data, 200, allowed);
+      }
+
+      const videoMatch = path.match(/^\/api\/videos\/([^/]+)$/);
+      if (videoMatch) {
+        const videoId = decodeURIComponent(videoMatch[1]);
+        const holder = { id: actor.id, role: actor.role as PermissionRole };
+
+        if (method === 'GET') {
+          const row = await env.WEA_DB.prepare(
+            'SELECT * FROM youtube_videos WHERE id = ?1',
+          )
+            .bind(videoId)
+            .first<Record<string, unknown>>();
+          if (!row) return fail('NOT_FOUND', 404, allowed);
+          // The same rule as the write path: a listing that showed more than
+          // it allowed to be edited would only be a way of learning what else
+          // exists.
+          if (!mayManage(holder, row)) return fail('NOT_AUTHORISED', 403, allowed);
+          return json({ video: videoToJson(row) }, 200, allowed);
+        }
+
+        if (method === 'PATCH' || method === 'PUT') {
+          const result = await updateVideo(
+            env,
+            resolveYouTubeConfig(env),
+            holder,
+            videoId,
+            await readJson(request),
+          );
+          if (!result.ok) {
+            return fail(
+              result.code!,
+              result.code === 'NOT_FOUND' ? 404 : result.code === 'FORBIDDEN' ? 403 : 400,
+              allowed,
+              result.message,
+            );
+          }
+          return json(result.data, 200, allowed);
+        }
+
+        if (method === 'DELETE') {
+          const result = await deleteVideo(
+            env,
+            resolveYouTubeConfig(env),
+            holder,
+            videoId,
+          );
+          if (!result.ok) {
+            return fail(
+              result.code!,
+              result.code === 'NOT_FOUND' ? 404 : result.code === 'FORBIDDEN' ? 403 : 400,
+              allowed,
+              result.message,
+            );
+          }
+          return json(result.data, 200, allowed);
+        }
+      }
+
+      // --- Live events -----------------------------------------------------
+
+      if (path === '/api/live') {
+        const holder = { id: actor.id, role: actor.role as PermissionRole };
+
+        if (method === 'GET') {
+          if (!can(holder, 'live.create') && !can(holder, 'catalogue.read')) {
+            return fail('NOT_AUTHORISED', 403, allowed);
+          }
+          return json(
+            {
+              live_events: await listLiveEvents(
+                env.WEA_DB,
+                url.searchParams,
+                can(holder, 'live.create'),
+              ),
+            },
+            200,
+            allowed,
+          );
+        }
+
+        if (method === 'POST') {
+          if (!can(holder, 'live.create')) return fail('NOT_AUTHORISED', 403, allowed);
+          const result = await createLiveEvent(
+            env,
+            resolveYouTubeConfig(env),
+            holder,
+            await readJson(request),
+          );
+          if (!result.ok) {
+            return fail(
+              result.code!,
+              result.code === 'INVALID_REQUEST' ? 400 : 503,
+              allowed,
+              result.message,
+            );
+          }
+          return json(result.data, 201, allowed);
+        }
+      }
+
+      const liveActionMatch = path.match(
+        /^\/api\/live\/([^/]+)\/(start|end|cancel|status|ingestion)$/,
+      );
+      if (liveActionMatch) {
+        const holder = { id: actor.id, role: actor.role as PermissionRole };
+        const liveId = decodeURIComponent(liveActionMatch[1]);
+        const action = liveActionMatch[2];
+
+        // Putting an event on air, taking it off, and reading the credential
+        // that lets an encoder broadcast to the academy's channel are all
+        // `live.control`. Scheduling is not — that is `live.create`.
+        const permission: Permission =
+          action === 'cancel'
+            ? 'live.create'
+            : action === 'status'
+              ? 'live.create'
+              : 'live.control';
+        if (!can(holder, permission)) return fail('NOT_AUTHORISED', 403, allowed);
+
+        const config = resolveYouTubeConfig(env);
+        const result =
+          action === 'start'
+            ? await startLiveEvent(env, config, holder, liveId)
+            : action === 'end'
+              ? await endLiveEvent(env, config, holder, liveId)
+              : action === 'cancel'
+                ? await cancelLiveEvent(env, config, liveId)
+                : action === 'ingestion'
+                  ? await liveEventIngestion(env, config, liveId)
+                  : await liveEventStatus(env, config, liveId);
+
+        if (!result.ok) {
+          const status =
+            result.code === 'NOT_FOUND'
+              ? 404
+              : result.code === 'ALREADY_LIVE' ||
+                  result.code === 'ALREADY_ENDED' ||
+                  result.code === 'EVENT_IS_LIVE' ||
+                  result.code === 'EVENT_FINISHED'
+                ? 409
+                : result.code === 'STREAM_NOT_ACTIVE' || result.code === 'NOT_READY'
+                  ? 400
+                  : 503;
+          return fail(result.code!, status, allowed, result.message);
+        }
+        return json(result.data, 200, allowed);
+      }
+
+      const liveMatch = path.match(/^\/api\/live\/([^/]+)$/);
+      if (method === 'GET' && liveMatch) {
+        const holder = { id: actor.id, role: actor.role as PermissionRole };
+        if (!can(holder, 'live.create') && !can(holder, 'catalogue.read')) {
+          return fail('NOT_AUTHORISED', 403, allowed);
+        }
+        const row = await liveEventRow(env.WEA_DB, decodeURIComponent(liveMatch[1]));
+        if (!row) return fail('NOT_FOUND', 404, allowed);
+        // A draft or failed event is not something an audience may fetch by
+        // guessing its id, so the listing's rule holds for a single row too.
+        const manages = can(holder, 'live.create');
+        if (!manages && !isAudienceVisible(row)) {
+          return fail('NOT_FOUND', 404, allowed);
+        }
+        return json({ live_event: liveEventToJson(row, manages) }, 200, allowed);
       }
 
       // --- Enrolments ------------------------------------------------------

@@ -725,11 +725,169 @@ class EventPaymentMethod {
       );
 }
 
+/// One price the academy has set. WEA never converts between them.
+class EventPrice {
+  const EventPrice({required this.currency, required this.amount});
+
+  final String currency;
+  final double amount;
+
+  String get label => formatMoney(amount, currency);
+
+  factory EventPrice.fromMap(Map<String, dynamic> map) => EventPrice(
+    currency: _text(map, 'currency'),
+    amount: _double(map, 'amount'),
+  );
+}
+
+/// How a registrant is attending. Only ever a choice on a hybrid event.
+enum EventAttendanceMode {
+  physical,
+  virtual;
+
+  static EventAttendanceMode? parse(String value) => switch (value.toUpperCase()) {
+    'PHYSICAL' => EventAttendanceMode.physical,
+    'VIRTUAL' => EventAttendanceMode.virtual,
+    _ => null,
+  };
+
+  String get wire => name.toUpperCase();
+
+  String get label => switch (this) {
+    EventAttendanceMode.physical => 'Attend in person',
+    EventAttendanceMode.virtual => 'Attend online',
+  };
+
+  String get shortLabel => switch (this) {
+    EventAttendanceMode.physical => 'In person',
+    EventAttendanceMode.virtual => 'Online',
+  };
+}
+
+/// One rate on an event's fee table.
+///
+/// The registrant never picks one of these. Which applies follows from the
+/// date and from how they are attending, and the server decides it.
+class EventFeeTier {
+  const EventFeeTier({
+    required this.label,
+    required this.prices,
+    this.attendanceMode = 'ANY',
+    this.availableUntil,
+    this.open = true,
+  });
+
+  final String label;
+  final List<EventPrice> prices;
+  final String attendanceMode;
+
+  /// When this rate closes. Null for the rate that applies afterwards.
+  final DateTime? availableUntil;
+
+  /// Whether it applies today. A closed rate is still shown, greyed, so a
+  /// registrant can see what they missed and what the current rate replaced.
+  final bool open;
+
+  EventAttendanceMode? get mode => EventAttendanceMode.parse(attendanceMode);
+
+  EventPrice? priceIn(String currency) {
+    for (final price in prices) {
+      if (price.currency == currency) return price;
+    }
+    return prices.isEmpty ? null : prices.first;
+  }
+
+  factory EventFeeTier.fromMap(Map<String, dynamic> map) => EventFeeTier(
+    label: _text(map, 'label'),
+    prices: _rows(map['prices']).map(EventPrice.fromMap).toList(),
+    attendanceMode: _text(map, 'attendance_mode'),
+    availableUntil: _date(map, 'available_until'),
+    open: map['open'] != false,
+  );
+}
+
 /// The methods offered for one event, and which environment they run in.
 class EventPaymentOptions {
-  const EventPaymentOptions({required this.methods, required this.environment});
+  const EventPaymentOptions({
+    required this.methods,
+    required this.environment,
+    this.prices = const [],
+    this.currency = '',
+    this.suggestedCurrency = '',
+    this.tierLabel = '',
+    this.tierClosesAt,
+    this.attendanceMode = '',
+    this.attendanceModes = const [],
+    this.feeTiers = const [],
+  });
 
   final List<EventPaymentMethod> methods;
+
+  /// The rate being charged, e.g. `Early Bird`. Empty when the event has a
+  /// single unnamed fee.
+  final String tierLabel;
+
+  /// When that rate closes, so the registrant can be told rather than simply
+  /// charged more one morning.
+  final DateTime? tierClosesAt;
+
+  /// The way of attending these prices are for.
+  final String attendanceMode;
+
+  /// The ways of attending that have a price. Empty on an event with only one
+  /// — there is nothing to ask.
+  final List<EventAttendanceMode> attendanceModes;
+
+  /// The whole fee table, so a registrant can see both ways of attending and
+  /// what the rate becomes later.
+  final List<EventFeeTier> feeTiers;
+
+  /// Every currency the academy priced this in. A currency absent here is one
+  /// WEA does not sell in, rather than one to convert into.
+  final List<EventPrice> prices;
+
+  /// The currency these methods and this price apply to.
+  final String currency;
+
+  /// What the payer's location suggests — naira in Nigeria, dollars outside.
+  final String suggestedCurrency;
+
+  bool get hasChoice => prices.length > 1;
+
+  /// Whether there is a way of attending to choose between.
+  bool get hasModeChoice => attendanceModes.length > 1;
+
+  EventAttendanceMode? get mode => EventAttendanceMode.parse(attendanceMode);
+
+  EventPrice? get price {
+    for (final option in prices) {
+      if (option.currency == currency) return option;
+    }
+    return prices.isEmpty ? null : prices.first;
+  }
+
+  /// The rate for a way of attending, so the picker can show both prices
+  /// rather than making the registrant switch to find out.
+  EventFeeTier? tierFor(EventAttendanceMode wanted) {
+    for (final tier in feeTiers) {
+      if (!tier.open) continue;
+      if (tier.mode == wanted || tier.attendanceMode == 'ANY') return tier;
+    }
+    return null;
+  }
+
+  /// What the rate becomes once the current one closes, if anything does.
+  EventFeeTier? get nextTier {
+    if (tierClosesAt == null) return null;
+    for (final tier in feeTiers) {
+      final matches =
+          tier.mode == mode || tier.attendanceMode == 'ANY' || mode == null;
+      if (matches && tier.availableUntil == null && tier.label != tierLabel) {
+        return tier;
+      }
+    }
+    return null;
+  }
 
   /// `SANDBOX` or `PRODUCTION`. Shown so a test payment is never mistaken
   /// for a real one.
@@ -737,11 +895,25 @@ class EventPaymentOptions {
 
   bool get isSandbox => environment.toUpperCase() == 'SANDBOX';
 
-  factory EventPaymentOptions.fromMap(Map<String, dynamic> map) =>
-      EventPaymentOptions(
-        methods: _rows(map['methods']).map(EventPaymentMethod.fromMap).toList(),
-        environment: _text(map, 'environment'),
-      );
+  factory EventPaymentOptions.fromMap(Map<String, dynamic> map) {
+    final tier = map['tier'];
+    final tierMap = tier is Map<String, dynamic> ? tier : const <String, dynamic>{};
+    return EventPaymentOptions(
+      methods: _rows(map['methods']).map(EventPaymentMethod.fromMap).toList(),
+      environment: _text(map, 'environment'),
+      prices: _rows(map['prices']).map(EventPrice.fromMap).toList(),
+      currency: _text(map, 'currency'),
+      suggestedCurrency: _text(map, 'suggested_currency'),
+      tierLabel: _text(tierMap, 'label'),
+      tierClosesAt: _date(tierMap, 'available_until'),
+      attendanceMode: _text(map, 'attendance_mode'),
+      attendanceModes: [
+        for (final value in (map['attendance_modes'] as List? ?? const []))
+          ?EventAttendanceMode.parse('$value'),
+      ],
+      feeTiers: _rows(map['fee_tiers']).map(EventFeeTier.fromMap).toList(),
+    );
+  }
 }
 
 /// What the API says to do next in order to pay.

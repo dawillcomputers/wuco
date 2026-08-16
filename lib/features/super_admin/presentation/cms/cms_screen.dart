@@ -59,7 +59,7 @@ class _CmsScreenState extends ConsumerState<CmsScreen> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         toolbarHeight: 72,
-        title: const WEABrandLockup(height: 46, onDark: true),
+        title: const WEABrandLockup(height: 46, onDark: true, linkToHome: true),
         actions: [
           TextButton(
             onPressed: () => context.go('/programmes'),

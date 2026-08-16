@@ -187,20 +187,42 @@ class ApiEventsRepository
   }
 
   @override
-  Future<EventPaymentOptions> paymentMethods(String slug) async =>
-      EventPaymentOptions.fromMap(
-        await _send('GET', '/api/events/$slug/payment-methods'),
-      );
+  Future<EventPaymentOptions> paymentMethods(
+    String slug, {
+    String? currency,
+    String? attendanceMode,
+  }) async => EventPaymentOptions.fromMap(
+    await _send(
+      'GET',
+      '/api/events/$slug/payment-methods',
+      query: {
+        if (currency != null && currency.isNotEmpty) 'currency': currency,
+        // Which rate applies still follows from the date, server-side. This
+        // only says how the registrant is attending.
+        if (attendanceMode != null && attendanceMode.isNotEmpty)
+          'attendance_mode': attendanceMode,
+      },
+    ),
+  );
 
   @override
   Future<EventPaymentIntent> beginPayment(
     String reference, {
     String? methodKey,
+    String? currency,
+    String? attendanceMode,
   }) async => EventPaymentIntent.fromMap(
     await _send(
       'POST',
       '/api/events/registrations/$reference/payment',
-      body: {'payment_method': methodKey ?? ''},
+      body: {
+        'payment_method': methodKey ?? '',
+        // The server still decides the amount; these only name which of the
+        // academy's own prices to charge. Which *rate* that is — early or
+        // standard — follows from the date and is not ours to say.
+        'currency': currency ?? '',
+        'attendance_mode': attendanceMode ?? '',
+      },
       reference: reference,
     ),
   );

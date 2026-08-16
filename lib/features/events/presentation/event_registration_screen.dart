@@ -67,6 +67,15 @@ class _EventRegistrationScreenState
   /// accept one the event does not offer.
   String? _method;
 
+  /// The currency the payer chose to be charged in. Only ever one of the
+  /// prices the academy set — WEA does not convert.
+  String? _currency;
+
+  /// How they are attending, on an event that offers both. Which *rate* that
+  /// earns is not chosen here or anywhere else in the client: the date decides
+  /// it, and the server is the only thing entitled to that opinion.
+  EventAttendanceMode? _attendance;
+
   static const _steps = ['Information', 'Details', 'Review', 'Payment'];
 
   @override
@@ -170,7 +179,12 @@ class _EventRegistrationScreenState
     try {
       final intent = await ref
           .read(eventActionsProvider)
-          .beginPayment(registration.reference, methodKey: _method);
+          .beginPayment(
+            registration.reference,
+            methodKey: _method,
+            currency: _currency,
+            attendanceMode: _attendance?.wire,
+          );
       if (!mounted) return;
       setState(() {
         _intent = intent;
@@ -544,6 +558,31 @@ class _EventRegistrationScreenState
     final registration = _registration;
     final intent = _intent;
 
+    // The prices, and the methods that can settle each of them, both come from
+    // the server. Watched once here so the amount shown and the methods
+    // offered can never disagree about which currency is being paid in.
+    final payment = ref.watch(
+      eventPaymentMethodsProvider((
+        slug: widget.slug,
+        currency: _currency,
+        attendanceMode: _attendance?.wire,
+      )),
+    );
+
+    final options = payment.value;
+
+    // Once a payment has begun, the committed figure. Before that, whichever
+    // of the academy's prices the payer has chosen — falling back to the base
+    // price while the prices are still loading.
+    final amountDue = intent != null
+        ? formatMoney(intent.amount, intent.currency)
+        : options?.price?.label ?? registration?.amountLabel ?? event.feeLabel;
+
+    final rateLabel = options?.tierLabel ?? '';
+    // Only worth saying before they have committed; afterwards the rate they
+    // got is settled and a deadline is just noise.
+    final rateCloses = intent == null ? options?.tierClosesAt : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -577,21 +616,42 @@ class _EventRegistrationScreenState
                 value: registration?.fullName ?? '',
               ),
               _ReviewRow(label: 'Reference', value: registration?.reference ?? ''),
+              if (options?.mode case final mode?)
+                _ReviewRow(label: 'Attending', value: mode.shortLabel),
               const Divider(height: WEAInsets.lg),
               Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      'Amount due',
-                      style: theme.textTheme.titleMedium,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Amount due', style: theme.textTheme.titleMedium),
+                        // Naming the rate matters: a registrant told only a
+                        // number cannot tell whether they got the early price,
+                        // nor why it will be different next week.
+                        if (rateLabel.isNotEmpty)
+                          Text(
+                            rateLabel,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: WEAColors.mutedText,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                  Text(
-                    registration?.amountLabel ?? event.feeLabel,
-                    style: theme.textTheme.headlineSmall,
-                  ),
+                  Text(amountDue, style: theme.textTheme.headlineSmall),
                 ],
               ),
+              if (rateCloses != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: WEAInsets.sm),
+                  child: Text(
+                    'This rate closes ${formatEventDate(rateCloses)}.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: WEAColors.mutedText,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -614,23 +674,55 @@ class _EventRegistrationScreenState
         ],
         if (intent == null) ...[
           const SizedBox(height: WEAInsets.lg),
-          // The choices come from the server, which knows what the academy
-          // enabled and what the processor can actually take.
-          ref
-              .watch(eventPaymentMethodsProvider(widget.slug))
-              .when(
-                loading: () => const Padding(
-                  padding: EdgeInsets.symmetric(vertical: WEAInsets.lg),
-                  child: LinearProgressIndicator(),
-                ),
-                error: (_, _) => const SizedBox.shrink(),
-                data: (options) => PaymentMethodSelector(
+          payment.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: WEAInsets.lg),
+              child: LinearProgressIndicator(),
+            ),
+            error: (_, _) => const SizedBox.shrink(),
+            data: (options) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Only a hybrid event has anything to ask. Each option shows
+                // its own price, so the registrant can see what the other way
+                // of attending costs without having to switch to find out.
+                if (options.hasModeChoice) ...[
+                  _AttendanceChoice(
+                    options: options,
+                    selected: _attendance ?? options.mode,
+                    onSelected: (mode) => setState(() {
+                      _attendance = mode;
+                      // The rate, and so the currencies it is sold in, both
+                      // change with the mode; neither older choice survives.
+                      _method = null;
+                    }),
+                  ),
+                  const SizedBox(height: WEAInsets.lg),
+                ],
+                // Shown only where there is a genuine choice: one price
+                // needs no picker.
+                if (options.hasChoice) ...[
+                  _CurrencyChoice(
+                    options: options,
+                    selected: _currency ?? options.currency,
+                    onSelected: (currency) => setState(() {
+                      _currency = currency;
+                      // A method that cannot settle the new currency must
+                      // not stay selected.
+                      _method = null;
+                    }),
+                  ),
+                  const SizedBox(height: WEAInsets.lg),
+                ],
+                PaymentMethodSelector(
                   methods: options.methods,
                   selected: _method,
                   environment: options.environment,
                   onSelected: (key) => setState(() => _method = key),
                 ),
-              ),
+              ],
+            ),
+          ),
         ],
         const SizedBox(height: WEAInsets.xl),
         if (intent == null)
@@ -769,6 +861,166 @@ class _CustomField extends StatelessWidget {
             : null,
         onChanged: onChanged,
       ),
+    );
+  }
+}
+
+/// Lets the payer choose which of the academy's prices to be charged.
+///
+/// Naira in Nigeria and dollars elsewhere is only the opening suggestion; a
+/// Nigerian paying from a dollar account, or the reverse, chooses for
+/// themselves. Every option is a price somebody at the academy set — nothing
+/// here is converted.
+/// Lets the registrant say whether they are coming to the room or watching.
+///
+/// Only ever shown on a hybrid event. Each option carries its own price,
+/// because the difference between attending in person and online is usually
+/// the reason somebody is choosing at all — and making them switch back and
+/// forth to compare is a worse form of the same question.
+///
+/// This picks the *mode*, never the rate. Whether that mode earns the early
+/// price or the standard one follows from the date, decided server-side.
+class _AttendanceChoice extends StatelessWidget {
+  const _AttendanceChoice({
+    required this.options,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final EventPaymentOptions options;
+  final EventAttendanceMode? selected;
+  final ValueChanged<EventAttendanceMode> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'HOW WILL YOU ATTEND?',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: WEAColors.mutedText,
+            letterSpacing: 1.3,
+          ),
+        ),
+        const SizedBox(height: WEAInsets.sm),
+        for (final mode in options.attendanceModes)
+          Padding(
+            padding: const EdgeInsets.only(bottom: WEAInsets.xs),
+            child: _AttendanceOption(
+              mode: mode,
+              selected: mode == selected,
+              // The price for this way of attending, in the currency being
+              // shown, so both options can be compared at a glance.
+              price: options
+                  .tierFor(mode)
+                  ?.priceIn(options.currency)
+                  ?.label,
+              onTap: () => onSelected(mode),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AttendanceOption extends StatelessWidget {
+  const _AttendanceOption({
+    required this.mode,
+    required this.selected,
+    required this.price,
+    required this.onTap,
+  });
+
+  final EventAttendanceMode mode;
+  final bool selected;
+  final String? price;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(WEAInsets.smallRadius),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: WEAInsets.md,
+          vertical: WEAInsets.sm,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(WEAInsets.smallRadius),
+          border: Border.all(
+            color: selected ? theme.colorScheme.primary : theme.dividerColor,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_unchecked,
+              size: 20,
+              color: selected ? theme.colorScheme.primary : WEAColors.mutedText,
+            ),
+            const SizedBox(width: WEAInsets.sm),
+            Expanded(
+              child: Text(mode.label, style: theme.textTheme.bodyMedium),
+            ),
+            if (price != null)
+              Text(
+                price!,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: selected ? theme.colorScheme.primary : null,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CurrencyChoice extends StatelessWidget {
+  const _CurrencyChoice({
+    required this.options,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final EventPaymentOptions options;
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'PAY IN',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: WEAColors.mutedText,
+            letterSpacing: 1.3,
+          ),
+        ),
+        const SizedBox(height: WEAInsets.sm),
+        Wrap(
+          spacing: WEAInsets.xs,
+          runSpacing: WEAInsets.xs,
+          children: [
+            for (final price in options.prices)
+              ChoiceChip(
+                selected: price.currency == selected,
+                onSelected: (_) => onSelected(price.currency),
+                label: Text('${price.currency} · ${price.label}'),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

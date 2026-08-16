@@ -50,6 +50,7 @@ class WEAAppShell extends StatelessWidget {
               ? 58
               : 64,
           onDark: true,
+          linkToHome: true,
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),

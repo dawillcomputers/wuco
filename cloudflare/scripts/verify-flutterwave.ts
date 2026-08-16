@@ -16,6 +16,16 @@ import {
   resolveConfig,
   verifyWebhookSignature,
 } from '../src/flutterwave';
+import {
+  feeTierFrom,
+  implicitTier,
+  offeredModes,
+  parsePrices,
+  pricesFor,
+  resolveCharge,
+  suggestedCurrency,
+  tierFor,
+} from '../src/pricing';
 
 let failures = 0;
 
@@ -101,31 +111,232 @@ async function main() {
   const unusable = new FlutterwavePaymentService(empty);
   check(
     'an unconfigured deployment offers nothing',
-    unusable.getPaymentMethods(['card', 'bank_transfer']).length === 0,
+    unusable.getPaymentMethods('NGN').length === 0,
     'offering a method that cannot complete is worse than offering none',
   );
 
   const service = new FlutterwavePaymentService(sandbox);
+
+  const naira = service.getPaymentMethods('NGN');
+  check('naira offers the Nigerian rails', naira.length > 1, `${naira.length}`);
   check(
-    'an event with nothing enabled offers nothing',
-    service.getPaymentMethods([]).length === 0,
+    'and includes bank transfer and USSD',
+    naira.some((method) => method.key === 'bank_transfer') &&
+      naira.some((method) => method.key === 'ussd'),
   );
 
-  const offered = service.getPaymentMethods(['bank_transfer', 'ussd', 'nonsense']);
-  check('only enabled methods are offered', offered.length === 2, `${offered.length}`);
+  const dollars = service.getPaymentMethods('USD');
   check(
-    'an unknown method key is ignored',
-    !offered.some((method) => method.key === 'nonsense'),
+    'dollars offer only what can settle in dollars',
+    dollars.every((method) => method.currencies.length === 0),
+    dollars.map((method) => method.key).join(', '),
+  );
+  check(
+    'USSD is not offered against a dollar price',
+    !dollars.some((method) => method.key === 'ussd'),
+    'it would fail at the processor after the payer had committed',
   );
 
-  const card = service.getPaymentMethods(['card'])[0];
+  const card = service.getPaymentMethods('USD').find((m) => m.key === 'card');
   check(
     'card is a redirect, never a direct charge',
     card?.flow === 'redirect',
     'a direct card charge would put WEA in PCI scope',
   );
-  const transfer = service.getPaymentMethods(['bank_transfer'])[0];
+  const transfer = naira.find((method) => method.key === 'bank_transfer');
   check('bank transfer is a direct charge', transfer?.flow === 'directCharge');
+
+  // --- Pricing ---------------------------------------------------------------
+
+  section('Pricing');
+
+  const priced = pricesFor(
+    { fee_amount: 250000, fee_currency: 'NGN', prices: '{"USD": 150}' },
+    'fee_amount',
+    'fee_currency',
+  );
+  check('the base price is included', priced.some((p) => p.currency === 'NGN'));
+  check('and the additional ones', priced.some((p) => p.currency === 'USD'));
+
+  check(
+    'Nigeria is shown naira',
+    suggestedCurrency(priced, 'NG') === 'NGN',
+  );
+  check(
+    'elsewhere is shown dollars',
+    suggestedCurrency(priced, 'GB') === 'USD',
+  );
+  check(
+    'with no dollar price, naira is shown anyway',
+    suggestedCurrency(
+      pricesFor({ fee_amount: 5000, fee_currency: 'NGN' }, 'fee_amount', 'fee_currency'),
+      'GB',
+    ) === 'NGN',
+    'a price nobody set is worse than an unexpected currency',
+  );
+
+  check(
+    'a chosen currency is honoured',
+    resolveCharge(priced, 'USD', 'NG')?.amount === 150,
+  );
+  check(
+    'a currency WEA never priced falls back rather than converting',
+    resolveCharge(priced, 'EUR', 'NG')?.currency === 'NGN',
+    'inventing an exchange rate would charge a number nobody chose',
+  );
+  check(
+    'an unpriced item cannot be charged at all',
+    resolveCharge([], 'USD', 'NG') === null,
+  );
+
+  // --- Prices survive being edited ------------------------------------------
+
+  section('Prices survive the CMS');
+
+  check(
+    'lines are read as prices',
+    parsePrices('USD 1500\nGBP 1,200')['USD'] === 1500 &&
+      parsePrices('USD 1500\nGBP 1,200')['GBP'] === 1200,
+  );
+  check(
+    'a lower-case code and a colon are still a price',
+    parsePrices(['usd: 150'])['USD'] === 150,
+  );
+  check(
+    'a line that is not a price is dropped',
+    Object.keys(parsePrices('about two hundred dollars')).length === 0,
+    'storing a price of nothing would charge nothing',
+  );
+  check(
+    'a negative price is not a price',
+    Object.keys(parsePrices('USD -150')).length === 0,
+  );
+
+  // The CMS sends every field back on save, edited or not. Re-reading the
+  // stored map as a line would find no price in it and wipe the lot.
+  const stored = JSON.stringify(parsePrices('USD 150\nNGN 250000'));
+  check(
+    'saving a form without touching the prices keeps them',
+    parsePrices(stored)['USD'] === 150 && parsePrices(stored)['NGN'] === 250000,
+    'an untouched field must not delete what the academy set',
+  );
+  check(
+    'and an already-decoded map is understood too',
+    parsePrices({ USD: 150 })['USD'] === 150,
+  );
+
+  // --- Fee tiers -------------------------------------------------------------
+
+  section('Early bird, standard, physical, virtual');
+
+  const row = (
+    label: string,
+    mode: string,
+    prices: Record<string, number>,
+    until?: string,
+  ) =>
+    feeTierFrom({
+      id: `p-${label}-${mode}`,
+      tier_label: label,
+      attendance_mode: mode,
+      prices: JSON.stringify(prices),
+      available_until: until ?? null,
+      sort_order: 0,
+    });
+
+  const closes = '2026-09-30T23:59:59Z';
+  const summit = [
+    row('Early Bird', 'PHYSICAL', { NGN: 150000 }, closes),
+    row('Early Bird', 'VIRTUAL', { NGN: 100000 }, closes),
+    row('Standard', 'PHYSICAL', { NGN: 180000 }),
+    row('Standard', 'VIRTUAL', { NGN: 130000 }),
+  ];
+
+  const early = new Date('2026-09-01T10:00:00Z');
+  const late = new Date('2026-10-05T10:00:00Z');
+
+  check(
+    'in September, physical is the early bird price',
+    tierFor(summit, 'PHYSICAL', early)?.prices[0].amount === 150000,
+  );
+  check(
+    'and virtual is its own early bird price',
+    tierFor(summit, 'VIRTUAL', early)?.prices[0].amount === 100000,
+  );
+  check(
+    'in October, physical is standard',
+    tierFor(summit, 'PHYSICAL', late)?.prices[0].amount === 180000,
+    'the date decides the rate, with nobody editing anything',
+  );
+  check(
+    'and virtual is standard',
+    tierFor(summit, 'VIRTUAL', late)?.prices[0].amount === 130000,
+  );
+  check(
+    'the rate is named, not just priced',
+    tierFor(summit, 'PHYSICAL', early)?.label === 'Early Bird' &&
+      tierFor(summit, 'PHYSICAL', late)?.label === 'Standard',
+  );
+  check(
+    'the early rate cannot be claimed after it closes',
+    tierFor(summit, 'VIRTUAL', late)?.label === 'Standard',
+    'nothing in a request names a tier, so nothing can ask for the old one',
+  );
+
+  check(
+    'both ways of attending are offered on a hybrid event',
+    offeredModes(summit, 'HYBRID').sort().join(',') === 'PHYSICAL,VIRTUAL',
+  );
+  check(
+    'a physical-only event asks nothing',
+    offeredModes(summit, 'PHYSICAL').length === 0,
+    'there is no choice to present',
+  );
+
+  // An event published before fee tiers existed.
+  const legacy = implicitTier({
+    fee_amount: 250000,
+    fee_currency: 'NGN',
+    prices: '{"USD": 150}',
+  });
+  check(
+    'an event with no fee rows keeps its own price',
+    tierFor(legacy, '', late)?.prices.some((p) => p.amount === 250000) === true,
+    'nothing published today may change price because tiers were added',
+  );
+  check(
+    'and keeps its other currencies',
+    tierFor(legacy, '', late)?.prices.some((p) => p.currency === 'USD') === true,
+  );
+  check(
+    'and offers no mode choice',
+    offeredModes(legacy, 'HYBRID').sort().join(',') === 'PHYSICAL,VIRTUAL',
+    'an any-mode price applies to both ways of attending',
+  );
+  check(
+    'a free event has no tier to charge',
+    tierFor(implicitTier({ fee_amount: 0, fee_currency: 'NGN' }), '', late) === null,
+  );
+
+  // A late fee: opens when the standard rate closes.
+  const withLateFee = [
+    row('Standard', 'ANY', { NGN: 180000 }, closes),
+    feeTierFrom({
+      tier_label: 'Late',
+      attendance_mode: 'ANY',
+      prices: '{"NGN": 220000}',
+      available_from: '2026-10-01T00:00:00Z',
+    }),
+  ];
+  check(
+    'before the standard rate closes, it is the one charged',
+    tierFor(withLateFee, '', early)?.prices[0].amount === 180000,
+    'a rate that has not opened yet cannot be the cheapest one',
+  );
+  check(
+    'afterwards the late fee applies',
+    tierFor(withLateFee, '', late)?.prices[0].amount === 220000,
+  );
 
   // --- Secrets stay server-side --------------------------------------------
 
@@ -148,14 +359,7 @@ async function main() {
 
   // Everything a client can be handed, serialised, must contain no credential.
   const clientVisible = JSON.stringify({
-    methods: secretService.getPaymentMethods([
-      'card',
-      'bank_transfer',
-      'ussd',
-      'opay',
-      'nqr',
-      'bank_account',
-    ]),
+    methods: secretService.getPaymentMethods('NGN'),
     environment: secretService.environment,
   });
   check(

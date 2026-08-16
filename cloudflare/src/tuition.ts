@@ -12,8 +12,9 @@
  */
 
 import { newId } from './auth';
-import { FlutterwavePaymentService, PaymentMethodOption } from './flutterwave';
-import { num, parseJson, str } from './http';
+import { FlutterwavePaymentService } from './flutterwave';
+import { num, str } from './http';
+import { pricesFor, resolveCharge } from './pricing';
 import {
   PaymentSecrets,
   initialisePayment,
@@ -30,32 +31,12 @@ export interface TuitionResult {
 }
 
 /**
- * The methods this programme can actually take.
- *
- * A permission, not a promise: intersected with what the deployment's
- * credentials and the processor support before a payer sees anything.
- */
-export async function enabledTuitionMethods(
-  db: D1Database,
-  programmeId: string,
-  secrets: PaymentSecrets,
-): Promise<PaymentMethodOption[]> {
-  const programme = await db
-    .prepare('SELECT enabled_payment_methods FROM programmes WHERE id = ?1')
-    .bind(programmeId)
-    .first<{ enabled_payment_methods: string }>();
-
-  const enabled = parseJson<string[]>(programme?.enabled_payment_methods, []);
-  if (!Array.isArray(enabled) || enabled.length === 0) return [];
-  return FlutterwavePaymentService.from(secrets).getPaymentMethods(enabled);
-}
-
-/**
  * Starts a tuition payment.
  *
- * The amount comes from the registration, which took it from the programme
- * when the application was made — never from the request, and never from a
- * price change made since.
+ * The amount comes from the prices the academy set on the programme — never
+ * from the request. All the request may do is name which of those prices to
+ * charge, and a currency WEA never priced is refused rather than converted
+ * into.
  */
 export async function beginTuitionPayment(
   db: D1Database,
@@ -63,22 +44,34 @@ export async function beginTuitionPayment(
   secrets: PaymentSecrets,
   returnUrl: string,
   methodKey?: string,
+  chosenCurrency = '',
+  country = '',
 ): Promise<TuitionResult> {
-  const amount = num(registration.amount) ?? 0;
-  if (amount <= 0) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
-
   const already = str(registration.status);
   if (already === 'PAID' || already === 'CONFIRMED') {
     return { ok: false, code: 'ALREADY_PAID' };
   }
 
-  // A method the payer names must be one this programme actually offers,
-  // or anybody could charge through one the academy switched off.
+  // Charged from the prices the academy set, in the currency the payer chose.
+  // A currency WEA never priced is refused rather than converted into.
+  const programme = await db
+    .prepare(
+      'SELECT tuition_amount, tuition_currency, prices FROM programmes WHERE id = ?1',
+    )
+    .bind(registration.programme_id)
+    .first<Record<string, unknown>>();
+  const charge = resolveCharge(
+    pricesFor(programme ?? {}, 'tuition_amount', 'tuition_currency'),
+    chosenCurrency,
+    country,
+  );
+  if (!charge) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
+  const amount = charge.amount;
+
   if (str(methodKey) !== '') {
-    const offered = await enabledTuitionMethods(
-      db,
-      str(registration.programme_id),
+    const offered = FlutterwavePaymentService.offeredFor(
       secrets,
+      charge.currency,
     );
     if (!offered.some((option) => option.key === methodKey)) {
       return { ok: false, code: 'UNSUPPORTED_PAYMENT_METHOD' };
@@ -100,7 +93,7 @@ export async function beginTuitionPayment(
   const result = await initialisePayment(null, secrets, {
     reference,
     amount,
-    currency: str(registration.currency) || 'NGN',
+    currency: charge.currency,
     email: applicant.email,
     name: `${applicant.first_name} ${applicant.last_name}`.trim(),
     phone: str(applicant.phone),
@@ -135,7 +128,7 @@ export async function beginTuitionPayment(
       result.transactionId ?? null,
       result.checkoutUrl ?? null,
       amount,
-      str(registration.currency) || 'NGN',
+      charge.currency,
       result.checkoutUrl ? 'PROCESSING' : 'PENDING',
       str(methodKey),
       JSON.stringify(result.nextAction ?? {}),
@@ -149,6 +142,19 @@ export async function beginTuitionPayment(
       .run();
   }
 
+  // What the applicant is actually being charged, so a receipt and a refund
+  // quote the figure that was paid rather than the base price of a payment
+  // made in another currency.
+  await db
+    .prepare(
+      `UPDATE registrations
+          SET amount = ?1, currency = ?2, chosen_currency = ?2,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?3`,
+    )
+    .bind(amount, charge.currency, registration.id)
+    .run();
+
   return {
     ok: true,
     data: {
@@ -157,7 +163,7 @@ export async function beginTuitionPayment(
       next_action: result.nextAction ?? {},
       payment_method: str(methodKey),
       amount,
-      currency: str(registration.currency) || 'NGN',
+      currency: charge.currency,
     },
   };
 }

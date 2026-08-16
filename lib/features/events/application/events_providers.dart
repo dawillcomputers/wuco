@@ -83,10 +83,22 @@ final eventDashboardProvider = FutureProvider.family<EventDashboard, String>(
   (ref, reference) => ref.watch(eventsRepositoryProvider).dashboard(reference),
 );
 
-/// The methods this event can take, as the server reports them.
+/// The methods, prices and rate this event can take, as the server reports them.
+typedef PaymentQuery = ({
+  String slug,
+  String? currency,
+  String? attendanceMode,
+});
+
 final eventPaymentMethodsProvider =
-    FutureProvider.family<EventPaymentOptions, String>(
-      (ref, slug) => ref.watch(eventsRepositoryProvider).paymentMethods(slug),
+    FutureProvider.family<EventPaymentOptions, PaymentQuery>(
+      (ref, query) => ref
+          .watch(eventsRepositoryProvider)
+          .paymentMethods(
+            query.slug,
+            currency: query.currency,
+            attendanceMode: query.attendanceMode,
+          ),
     );
 
 /// Every event the signed-in account has registered for. Empty when signed out.
@@ -190,8 +202,15 @@ class EventActions {
   Future<EventPaymentIntent> beginPayment(
     String reference, {
     String? methodKey,
+    String? currency,
+    String? attendanceMode,
   }) async {
-    final intent = await _events.beginPayment(reference, methodKey: methodKey);
+    final intent = await _events.beginPayment(
+      reference,
+      methodKey: methodKey,
+      currency: currency,
+      attendanceMode: attendanceMode,
+    );
     unawaitedReport(name: 'payment_started');
     return intent;
   }

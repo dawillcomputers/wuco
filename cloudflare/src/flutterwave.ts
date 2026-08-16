@@ -78,6 +78,14 @@ export interface PaymentMethodOption {
   /** The `type` Flutterwave's V4 payment-methods endpoint expects. */
   providerType: string;
   flow: 'directCharge' | 'redirect';
+  /**
+   * Currencies this method can settle in, or empty for any.
+   *
+   * USSD, OPay and NQR are Nigerian rails: they cannot take dollars, and
+   * offering them against a dollar price would fail at the processor after
+   * the payer had committed.
+   */
+  currencies: string[];
 }
 
 export const FLUTTERWAVE_METHODS: PaymentMethodOption[] = [
@@ -86,6 +94,7 @@ export const FLUTTERWAVE_METHODS: PaymentMethodOption[] = [
     label: 'Bank Transfer',
     description: 'Transfer the exact amount from your banking app.',
     providerType: 'bank_transfer',
+    currencies: ['NGN'],
     flow: 'directCharge',
   },
   {
@@ -93,6 +102,7 @@ export const FLUTTERWAVE_METHODS: PaymentMethodOption[] = [
     label: 'USSD',
     description: 'Dial a short code from the phone linked to your bank.',
     providerType: 'ussd',
+    currencies: ['NGN'],
     flow: 'directCharge',
   },
   {
@@ -100,6 +110,7 @@ export const FLUTTERWAVE_METHODS: PaymentMethodOption[] = [
     label: 'OPay',
     description: 'Authorise the payment from your OPay wallet.',
     providerType: 'opay',
+    currencies: ['NGN'],
     flow: 'directCharge',
   },
   {
@@ -107,6 +118,7 @@ export const FLUTTERWAVE_METHODS: PaymentMethodOption[] = [
     label: 'NQR',
     description: 'Scan the NIBSS QR code with your banking app.',
     providerType: 'nqr',
+    currencies: ['NGN'],
     flow: 'directCharge',
   },
   {
@@ -114,6 +126,7 @@ export const FLUTTERWAVE_METHODS: PaymentMethodOption[] = [
     label: 'Card',
     description: 'Visa, Mastercard, Verve and others, on Flutterwave.',
     providerType: 'card',
+    currencies: [],
     // Redirect, never direct charge: a direct card charge would put WEA in
     // PCI scope by requiring the card number.
     flow: 'redirect',
@@ -123,6 +136,7 @@ export const FLUTTERWAVE_METHODS: PaymentMethodOption[] = [
     label: 'Bank Account',
     description: 'Pay directly from your bank account.',
     providerType: 'bank_account',
+    currencies: ['NGN'],
     flow: 'directCharge',
   },
 ];
@@ -411,6 +425,21 @@ export class FlutterwavePaymentService {
     return new FlutterwavePaymentService(resolveConfig(env));
   }
 
+  /**
+   * The methods a payer may use for this currency, whatever they are paying
+   * for.
+   *
+   * Events and programmes ask the same question and deserve the same answer:
+   * there is nothing per-item to enable, so there is nothing per-item to look
+   * up either.
+   */
+  static offeredFor(
+    env: FlutterwaveConfig,
+    currency: string,
+  ): PaymentMethodOption[] {
+    return FlutterwavePaymentService.from(env).getPaymentMethods(currency);
+  }
+
   get environment(): string {
     return this.config.environment;
   }
@@ -435,17 +464,22 @@ export class FlutterwavePaymentService {
   }
 
   /**
-   * The methods this deployment can actually offer.
+   * The methods a payer may use for this currency.
    *
-   * Intersected with what the caller has enabled for the event. An empty
-   * enabled list means "the deployment default", never "everything
-   * Flutterwave has ever supported" — a method is only shown when somebody has
-   * deliberately turned it on.
+   * Decided by the currency and by whether this deployment holds credentials
+   * at all — not by an administrator ticking boxes per event. Requiring that
+   * meant a new event silently offered nothing, and duplicated a decision the
+   * Flutterwave account already holds.
+   *
+   * A method that cannot settle the currency is omitted rather than shown and
+   * then failed on at the processor.
    */
-  getPaymentMethods(enabledKeys: string[]): PaymentMethodOption[] {
+  getPaymentMethods(currency: string): PaymentMethodOption[] {
     if (!this.config.usable) return [];
-    if (enabledKeys.length === 0) return [];
-    return FLUTTERWAVE_METHODS.filter((method) => enabledKeys.includes(method.key));
+    const code = str(currency).toUpperCase() || 'NGN';
+    return FLUTTERWAVE_METHODS.filter(
+      (method) => method.currencies.length === 0 || method.currencies.includes(code),
+    );
   }
 
   /** Finds or creates the payer at the processor. */

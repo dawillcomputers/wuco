@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -90,6 +92,9 @@ class CmsFieldEditor extends ConsumerWidget {
 
       case CmsFieldKind.stringList:
         return _StringListField(field: field, value: value, onChanged: onChanged);
+
+      case CmsFieldKind.prices:
+        return _PricesField(field: field, value: value, onChanged: onChanged);
 
       case CmsFieldKind.date:
       case CmsFieldKind.dateTime:
@@ -355,6 +360,224 @@ class _StringListFieldState extends State<_StringListField> {
         if (line.trim().isNotEmpty) line.trim(),
     ]),
   );
+}
+
+/// The currencies this is sold in, and the amount charged in each.
+///
+/// A selector, not a text box. The academy switches a currency on and types
+/// what it charges in it — because **WEA never converts**, so each price is a
+/// number somebody here chose rather than one derived from another. Switching
+/// a currency off is how the academy stops selling in it.
+///
+/// It reads the stored `{"NGN": 150000}` map back, which it has to: the editor
+/// resends every field on save, so a price this could not parse would be a
+/// price it silently deleted from any event somebody merely opened.
+class _PricesField extends StatefulWidget {
+  const _PricesField({
+    required this.field,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final CmsField field;
+  final Object? value;
+  final ValueChanged<Object?> onChanged;
+
+  @override
+  State<_PricesField> createState() => _PricesFieldState();
+}
+
+/// The currencies the academy sells in, in the order they are offered.
+const _sellableCurrencies = <({String code, String name, String symbol})>[
+  (code: 'NGN', name: 'Nigerian Naira', symbol: '₦'),
+  (code: 'USD', name: 'US Dollar', symbol: r'$'),
+  (code: 'GBP', name: 'Pound Sterling', symbol: '£'),
+  (code: 'EUR', name: 'Euro', symbol: '€'),
+];
+
+class _PricesFieldState extends State<_PricesField> {
+  late final Map<String, TextEditingController> _amounts = {
+    for (final currency in _sellableCurrencies)
+      currency.code: TextEditingController(
+        text: _plain(_decode(widget.value)[currency.code]),
+      ),
+  };
+
+  late final Set<String> _active = _decode(widget.value).keys.toSet();
+
+  /// The stored value as a currency map, however it arrived.
+  static Map<String, double> _decode(Object? value) {
+    final raw = value is Map ? value : _parse(value);
+    if (raw == null) return {};
+
+    final prices = <String, double>{};
+    for (final entry in raw.entries) {
+      final code = '${entry.key}'.trim().toUpperCase();
+      final amount = entry.value is num
+          ? (entry.value as num).toDouble()
+          : double.tryParse('${entry.value}') ?? 0;
+      if (code.length == 3 && amount > 0) prices[code] = amount;
+    }
+    return prices;
+  }
+
+  static Map<Object?, Object?>? _parse(Object? value) {
+    final text = '${value ?? ''}'.trim();
+    if (!text.startsWith('{')) return null;
+    try {
+      final parsed = jsonDecode(text);
+      return parsed is Map ? parsed : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// An amount without the trailing `.0` a double would print.
+  static String _plain(double? amount) {
+    if (amount == null || amount <= 0) return '';
+    return amount == amount.truncateToDouble()
+        ? amount.toStringAsFixed(0)
+        : '$amount';
+  }
+
+  /// Emits the map. A currency switched off, or with no amount typed yet, is
+  /// absent — which is exactly what "not sold in that currency" means to
+  /// everything downstream.
+  void _emit() {
+    final prices = <String, double>{};
+    for (final currency in _sellableCurrencies) {
+      if (!_active.contains(currency.code)) continue;
+      final amount = double.tryParse(
+        _amounts[currency.code]!.text.replaceAll(',', '').trim(),
+      );
+      if (amount != null && amount > 0) prices[currency.code] = amount;
+    }
+    widget.onChanged(prices);
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _amounts.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(widget.field.label, style: theme.textTheme.labelLarge),
+        if (widget.field.help.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            widget.field.help,
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+          ),
+        ],
+        const SizedBox(height: 8),
+        for (final currency in _sellableCurrencies)
+          _CurrencyAmountRow(
+            code: currency.code,
+            name: currency.name,
+            symbol: currency.symbol,
+            active: _active.contains(currency.code),
+            controller: _amounts[currency.code]!,
+            onToggled: (on) => setState(() {
+              if (on) {
+                _active.add(currency.code);
+              } else {
+                _active.remove(currency.code);
+                // Cleared as well as switched off, so switching it back on
+                // does not silently restore a price the academy removed.
+                _amounts[currency.code]!.clear();
+              }
+              _emit();
+            }),
+            onAmountChanged: (_) => _emit(),
+          ),
+      ],
+    );
+  }
+}
+
+/// One currency: whether it is sold in, and what it costs.
+class _CurrencyAmountRow extends StatelessWidget {
+  const _CurrencyAmountRow({
+    required this.code,
+    required this.name,
+    required this.symbol,
+    required this.active,
+    required this.controller,
+    required this.onToggled,
+    required this.onAmountChanged,
+  });
+
+  final String code;
+  final String name;
+  final String symbol;
+  final bool active;
+  final TextEditingController controller;
+  final ValueChanged<bool> onToggled;
+  final ValueChanged<String> onAmountChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Switch(value: active, onChanged: onToggled),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 120,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(code, style: theme.textTheme.titleSmall),
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.hintColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TextFormField(
+              controller: controller,
+              enabled: active,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                isDense: true,
+                prefixText: '$symbol ',
+                hintText: active ? 'Amount' : 'Not sold in $code',
+                border: const OutlineInputBorder(),
+              ),
+              onChanged: onAmountChanged,
+              validator: (value) {
+                if (!active) return null;
+                final amount = double.tryParse(
+                  (value ?? '').replaceAll(',', '').trim(),
+                );
+                // A currency switched on with no amount would be a price of
+                // nothing, which is worse than not offering the currency.
+                if (amount == null || amount <= 0) return 'Set an amount';
+                return null;
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Picks a row from another resource, e.g. the area a programme belongs to.

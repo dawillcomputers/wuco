@@ -1,5 +1,6 @@
 import { newId } from './auth';
 import { CONTENT_STATUSES, flag, num, slugify, str } from './http';
+import { parsePrices } from './pricing';
 
 /**
  * Declarative description of an admin-managed table.
@@ -12,7 +13,7 @@ import { CONTENT_STATUSES, flag, num, slugify, str } from './http';
  */
 export interface FieldSpec {
   column: string;
-  kind: 'text' | 'number' | 'flag' | 'json' | 'nullableText';
+  kind: 'text' | 'number' | 'flag' | 'json' | 'nullableText' | 'prices';
   required?: boolean;
 }
 
@@ -50,6 +51,8 @@ const nullable = (column: string): FieldSpec => ({
 const number = (column: string): FieldSpec => ({ column, kind: 'number' });
 const boolean = (column: string): FieldSpec => ({ column, kind: 'flag' });
 const jsonField = (column: string): FieldSpec => ({ column, kind: 'json' });
+/** Prices, edited as "USD 1500" lines and stored as {"USD": 1500}. */
+const priceField = (column: string): FieldSpec => ({ column, kind: 'prices' });
 
 export const RESOURCES: ResourceSpec[] = [
   {
@@ -113,7 +116,7 @@ export const RESOURCES: ResourceSpec[] = [
       text('tuition_note'),
       number('cpd_points'),
       number('capacity'),
-      jsonField('enabled_payment_methods'),
+      priceField('prices'),
       boolean('registration_open'),
       boolean('featured'),
     ],
@@ -287,11 +290,15 @@ export const RESOURCES: ResourceSpec[] = [
       text('format'),
       nullable('registration_opens_at'),
       nullable('registration_closes_at'),
+      boolean('registration_paused'),
       number('capacity'),
       number('fee_amount'),
       text('fee_currency'),
-      nullable('payment_method_id'),
-      jsonField('enabled_payment_methods'),
+      // `payment_method_id` is deliberately not editable. Which methods a payer
+      // is offered follows from the Flutterwave account and the currency being
+      // charged, decided at the moment of payment — not from a per-event
+      // setting that duplicates it and can contradict it.
+      priceField('prices'),
       text('payment_instructions'),
       text('contact_email'),
       text('contact_phone'),
@@ -340,6 +347,25 @@ export const RESOURCES: ResourceSpec[] = [
       text('speaker'),
       text('notes'),
       boolean('is_live'),
+    ],
+  },
+  {
+    // The fee table: one row per tier per way of attending. An event with no
+    // rows here charges its own `fee_amount` exactly as it always has.
+    name: 'event-prices',
+    table: 'event_prices',
+    idPrefix: 'evtprice',
+    hasStatus: false,
+    hasSortOrder: true,
+    defaultOrder: 'sort_order',
+    filters: { event_id: 'event_id' },
+    fields: [
+      text('event_id', true),
+      text('tier_label', true),
+      text('attendance_mode'),
+      priceField('prices'),
+      nullable('available_from'),
+      nullable('available_until'),
     ],
   },
   {
@@ -400,6 +426,11 @@ function coerce(field: FieldSpec, raw: unknown): unknown {
       // Accept either an array/object or an already-encoded string, so the
       // client can send whichever is natural.
       return typeof raw === 'string' ? raw : JSON.stringify(raw ?? []);
+    case 'prices':
+      // Edited as "USD 1500" lines and stored as a currency map. What counts
+      // as a price is decided in one place, next to everything else that
+      // reads them.
+      return JSON.stringify(parsePrices(raw));
     case 'nullableText': {
       const value = str(raw);
       return value === '' ? null : value;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_colors.dart';
 
@@ -17,19 +18,63 @@ abstract final class WEABrandAssets {
   static const name = 'WUCO Executive Academy';
 }
 
+/// Makes brand artwork the way back to the home page.
+///
+/// Applied wherever the logo sits in a header, app bar or sidebar, because a
+/// logo in navigation is universally taken to be a link home and a visitor who
+/// clicks one and gets nothing concludes the site is broken.
+///
+/// Deliberately not applied where the mark is a statement of origin rather
+/// than a control: on a certificate, in a credential card, or on the loading
+/// screen, where there is nowhere to go yet.
+class _BrandHomeLink extends StatelessWidget {
+  const _BrandHomeLink({required this.enabled, required this.child});
+
+  final bool enabled;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return child;
+    return Semantics(
+      link: true,
+      button: true,
+      label: '${WEABrandAssets.name} — home',
+      child: InkWell(
+        onTap: () => context.go('/'),
+        borderRadius: BorderRadius.circular(8),
+        // A pointer cursor is what tells a visitor it is a link at all.
+        mouseCursor: SystemMouseCursors.click,
+        child: child,
+      ),
+    );
+  }
+}
+
 /// Compact brand signature: globe emblem plus typeset wordmark.
 class WEABrand extends StatelessWidget {
-  const WEABrand({super.key, this.compact = false, this.onDark = false});
+  const WEABrand({
+    super.key,
+    this.compact = false,
+    this.onDark = false,
+    this.linkToHome = true,
+  });
 
   final bool compact;
 
   /// Switches to the reversed artwork and light type for navy grounds.
   final bool onDark;
 
+  /// Whether tapping returns to the home page. On by default: this compact
+  /// signature only appears in navigation.
+  final bool linkToHome;
+
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
+  Widget build(BuildContext context) => _BrandHomeLink(
+    enabled: linkToHome,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
       // Boxed rather than sized by height: the desktop header is tight at the
       // 1440px breakpoint, so the mark keeps a fixed horizontal footprint.
       SizedBox(
@@ -64,22 +109,36 @@ class WEABrand extends StatelessWidget {
             ),
           ],
         ),
-    ],
+      ],
+    ),
   );
 }
 
 /// The complete logo lockup, for surfaces with room to show it properly.
 class WEABrandLockup extends StatelessWidget {
-  const WEABrandLockup({super.key, this.height = 120, this.onDark = false});
+  const WEABrandLockup({
+    super.key,
+    this.height = 120,
+    this.onDark = false,
+    this.linkToHome = false,
+  });
 
   final double height;
   final bool onDark;
 
+  /// Whether tapping returns to the home page. Off by default, because this
+  /// lockup is also the mark on a certificate and in a footer, where it is not
+  /// a control — headers opt in.
+  final bool linkToHome;
+
   @override
-  Widget build(BuildContext context) => Image.asset(
-    onDark ? WEABrandAssets.lockupReversed : WEABrandAssets.lockup,
-    height: height,
-    filterQuality: FilterQuality.medium,
-    semanticLabel: WEABrandAssets.name,
+  Widget build(BuildContext context) => _BrandHomeLink(
+    enabled: linkToHome,
+    child: Image.asset(
+      onDark ? WEABrandAssets.lockupReversed : WEABrandAssets.lockup,
+      height: height,
+      filterQuality: FilterQuality.medium,
+      semanticLabel: WEABrandAssets.name,
+    ),
   );
 }

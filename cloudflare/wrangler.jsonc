@@ -31,7 +31,25 @@
     // remain secrets.
     // ---------------------------------------------------------------------
     "FLW_ENVIRONMENT": "PRODUCTION",
-    "FLW_V4_BASE_URL": "https://f4bexperience.flutterwave.com"
+    "FLW_V4_BASE_URL": "https://f4bexperience.flutterwave.com",
+
+    // ---------------------------------------------------------------------
+    // YOUTUBE
+    //
+    // Where Google sends the owner back after they authorise WUCO. Not a
+    // secret — it travels in the browser's address bar — so it lives here
+    // where it can be reviewed rather than in `wrangler secret`.
+    //
+    // Google compares this against the client's authorised redirect list as a
+    // literal string: scheme, host, path and any trailing slash must match
+    // exactly, or the consent screen refuses with redirect_uri_mismatch.
+    //
+    // This must be registered, character for character, as an Authorised
+    // redirect URI on the Google OAuth client. Authorised JavaScript origins
+    // stays empty: this is the server-side authorization-code flow, and no
+    // browser script ever calls Google.
+    // ---------------------------------------------------------------------
+    "GOOGLE_REDIRECT_URI": "https://wuco-api.dawillcomputers.workers.dev/api/auth/youtube/callback"
   },
   // BOOTSTRAP_TOKEN is a secret, not a var. Set it with:
   //   npx wrangler secret put BOOTSTRAP_TOKEN
@@ -42,6 +60,16 @@
       "database_name": "wuco-production",
       "database_id": "892c42de-fe7d-424f-9146-d127315b4796",
       "migrations_dir": "migrations"
+    }
+  ],
+  // Credentials and short-lived state that must never sit in D1: the YouTube
+  // refresh token, the cached access token, and single-use OAuth states.
+  //
+  "kv_namespaces": [
+    {
+      "binding": "WUCO_TOKENS",
+      "id": "59a4c235fa1d4fdabdec450f8c83521a",
+      "preview_id": "2c1cd45bed4c4c4c845115ebdfb2b1d4"
     }
   ],
   // Programme, area and faculty imagery uploaded through the Super Admin CMS.

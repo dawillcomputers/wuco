@@ -22,7 +22,16 @@ import {
   sha256,
   temporaryPassword,
 } from './auth';
-import { num, parseJson, str } from './http';
+import { flag, num, parseJson, str } from './http';
+import {
+  AttendanceMode,
+  FeeTier,
+  feeTierFrom,
+  implicitTier,
+  offeredModes,
+  resolveCharge,
+  tierFor,
+} from './pricing';
 import {
   FlutterwavePaymentService,
   PaymentMethodOption,
@@ -52,6 +61,7 @@ export interface EventRow {
   capacity: number | null;
   registration_opens_at: string | null;
   registration_closes_at: string | null;
+  registration_paused: number;
   allow_guest_registration: number;
   format: string;
   success_message: string;
@@ -106,7 +116,8 @@ export async function listEvents(db: D1Database, params: URLSearchParams) {
     .prepare(
       `SELECT id, slug, title, theme, subtitle, event_type, summary, image_key, image_url,
               starts_at, ends_at, timezone, venue, format, fee_amount, fee_currency,
-              registration_opens_at, registration_closes_at, capacity, featured, status
+              registration_opens_at, registration_closes_at, registration_paused,
+              capacity, featured, status
          FROM events
         WHERE ${clauses.join(' AND ')}
         ORDER BY CASE WHEN starts_at IS NULL THEN 1 ELSE 0 END, starts_at, sort_order
@@ -183,9 +194,21 @@ export async function getEvent(db: D1Database, idOrSlug: string) {
   };
 }
 
-/** Whether this event is accepting registrations, and why not if it is not. */
+/**
+ * Whether this event is accepting registrations, and why not if it is not.
+ *
+ * Publishing opens registration. It stays open until the closing date passes,
+ * the event fills, or somebody pauses it — and nothing else. In particular an
+ * empty `registration_opens_at`, which is the default, means "open now"
+ * rather than "never opened".
+ */
 function registrationWindow(event: EventRow, confirmed: number): { open: boolean; code?: string } {
   if (event.status !== 'PUBLISHED') return { open: false, code: 'REGISTRATION_CLOSED' };
+  // Paused deliberately, with the event page left up. Distinct from closed so
+  // the form can say bookings will reopen rather than that they have ended.
+  if (flag(event.registration_paused) === 1) {
+    return { open: false, code: 'REGISTRATION_PAUSED' };
+  }
   const now = Date.now();
   if (event.registration_opens_at && new Date(event.registration_opens_at).getTime() > now) {
     return { open: false, code: 'REGISTRATION_NOT_OPEN' };
@@ -471,8 +494,33 @@ export async function saveEventRegistration(
   }
 
   const answers = { ...(body.answers as Record<string, unknown> | undefined) };
-  const fee = num(event.fee_amount) ?? 0;
   const complete = str(body.stage) === 'COMPLETE';
+
+  // How they are attending, and therefore what they will be charged.
+  //
+  // Only a hybrid event has anything to ask: a physical or online event has
+  // one mode, so a mode named in the request there is ignored rather than
+  // honoured. An unrecognised choice falls back to whatever the event does
+  // offer, so a request cannot invent a mode to reach a price with.
+  const tiers = await feeTiersFor(db, str(event.id));
+  const modes = offeredModes(tiers, str(event.format));
+  const asked = str(body.attendance_mode).toUpperCase();
+  const mode =
+    modes.length === 0
+      ? str(existing?.attendance_mode)
+      : modes.includes(asked as AttendanceMode)
+        ? asked
+        : str(existing?.attendance_mode) || modes[0];
+
+  // The fee is read from the tier open now, never from the request. This is
+  // the provisional figure the registrant is shown; `beginEventPayment`
+  // rewrites it with what they actually chose to be charged.
+  const tier = tierFor(tiers, mode);
+  const initial = tier
+    ? resolveCharge(tier.prices, '', str(body.country) || str(existing?.country))
+    : null;
+  const fee = initial?.amount ?? 0;
+  const feeCurrency = initial?.currency || str(event.fee_currency) || 'NGN';
 
   if (complete) {
     // Only checked when the registrant says they have finished, so a partial
@@ -540,9 +588,10 @@ export async function saveEventRegistration(
                 payment_status = CASE
                   WHEN payment_status = 'PAID' THEN payment_status ELSE ?11 END,
                 amount = ?12, currency = ?13, payment_method_id = ?14,
+                attendance_mode = ?15,
                 last_activity_at = CURRENT_TIMESTAMP,
                 updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?15`,
+          WHERE id = ?16`,
       )
       .bind(
         firstName,
@@ -557,8 +606,9 @@ export async function saveEventRegistration(
         status,
         paymentStatus,
         fee,
-        str(event.fee_currency),
+        feeCurrency,
         event.payment_method_id ?? null,
+        mode,
         existing.id,
       )
       .run();
@@ -593,10 +643,10 @@ export async function saveEventRegistration(
       `INSERT INTO event_registrations
          (id, reference, event_id, user_id, first_name, last_name, email, phone,
           organisation, job_title, country, answers, status, payment_status,
-          amount, currency, payment_method_id, resume_token_hash,
+          amount, currency, payment_method_id, attendance_mode, resume_token_hash,
           source, utm_source, utm_medium, utm_campaign)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-               ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)`,
+               ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)`,
     )
     .bind(
       id,
@@ -614,8 +664,9 @@ export async function saveEventRegistration(
       status,
       paymentStatus,
       fee,
-      str(event.fee_currency),
+      feeCurrency,
       event.payment_method_id ?? null,
+      mode,
       resumeToken ? await sha256(resumeToken) : null,
       str(body.source).slice(0, 80),
       str(body.utm_source).slice(0, 80),
@@ -683,27 +734,37 @@ export async function findOwnedRegistration(
 // ---------------------------------------------------------------------------
 
 /**
- * The payment methods this event can actually offer.
+ * The fee tiers for an event, or the one implicit tier it has always had.
  *
- * Three things have to agree before a method is shown: the academy enabled it
- * on the event, the deployment holds credentials for the processor, and the
- * processor supports it. Anything else is omitted rather than shown greyed
- * out — offering a method that cannot complete is worse than not offering it.
+ * An event with no rows in `event_prices` keeps charging its `fee_amount` and
+ * `prices` columns exactly as before. Every caller goes through here so that
+ * fallback exists once, rather than as a condition each of them could get
+ * subtly different.
  */
-export async function enabledPaymentMethods(
+export async function feeTiersFor(
   db: D1Database,
   eventId: string,
-  secrets: PaymentSecrets,
-): Promise<PaymentMethodOption[]> {
-  const event = await db
-    .prepare('SELECT enabled_payment_methods FROM events WHERE id = ?1')
+): Promise<FeeTier[]> {
+  const rows = await db
+    .prepare(
+      `SELECT id, tier_label, attendance_mode, prices, available_from,
+              available_until, sort_order
+         FROM event_prices
+        WHERE event_id = ?1
+        ORDER BY sort_order, created_at`,
+    )
     .bind(eventId)
-    .first<{ enabled_payment_methods: string }>();
+    .all();
 
-  const enabled = parseJson<string[]>(event?.enabled_payment_methods, []);
-  if (!Array.isArray(enabled) || enabled.length === 0) return [];
+  if (rows.results.length > 0) {
+    return rows.results.map((row) => feeTierFrom(row as Record<string, unknown>));
+  }
 
-  return FlutterwavePaymentService.from(secrets).getPaymentMethods(enabled);
+  const event = await db
+    .prepare('SELECT fee_amount, fee_currency, prices FROM events WHERE id = ?1')
+    .bind(eventId)
+    .first<Record<string, unknown>>();
+  return implicitTier(event ?? {});
 }
 
 async function paymentMethodFor(
@@ -720,9 +781,11 @@ async function paymentMethodFor(
 /**
  * Starts a payment for a registration.
  *
- * The amount comes from the registration row, which took it from the event —
- * never from the request. A client that asks to pay ten naira for a
- * two-hundred-and-fifty-thousand naira summit is charged the latter.
+ * The amount comes from the prices the academy set on the event — never from
+ * the request. A client that asks to pay ten naira for a
+ * two-hundred-and-fifty-thousand naira summit is charged the latter. All the
+ * request may do is name *which* of those prices to charge, and a currency
+ * WEA never priced is refused rather than converted into.
  */
 export async function beginEventPayment(
   db: D1Database,
@@ -730,21 +793,51 @@ export async function beginEventPayment(
   secrets: PaymentSecrets,
   returnUrl: string,
   methodKey?: string,
+  chosenCurrency = '',
+  country = '',
+  chosenMode = '',
 ): Promise<EventResult> {
-  const amount = num(registration.amount) ?? 0;
-  if (amount <= 0) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
   if (str(registration.payment_status) === 'PAID') {
     return { ok: false, code: 'ALREADY_PAID' };
   }
 
-  // A method the payer names must be one this event actually offers. Taking
-  // it from the request unchecked would let anybody charge through a method
-  // the academy has deliberately turned off.
+  // What the payer is charged comes from the prices the academy set: the tier
+  // open today, for the way they are attending, in the currency they chose.
+  // Nothing in the request names the tier — the date decides it — and a
+  // currency WEA never priced is refused rather than converted into.
+  const event = await db
+    .prepare('SELECT format FROM events WHERE id = ?1')
+    .bind(registration.event_id)
+    .first<Record<string, unknown>>();
+  const tiers = await feeTiersFor(db, str(registration.event_id));
+
+  // A mode the payer names has to be one this event actually offers, so a
+  // request cannot reach the cheaper rate of a way of attending that is not
+  // on sale. Anything unrecognised falls back to what they registered as.
+  const modes = offeredModes(tiers, str(event?.format));
+  const asked = str(chosenMode).toUpperCase();
+  const mode =
+    modes.length === 0
+      ? ''
+      : modes.includes(asked as AttendanceMode)
+        ? asked
+        : modes.includes(str(registration.attendance_mode) as AttendanceMode)
+          ? str(registration.attendance_mode)
+          : modes[0];
+
+  const tier = tierFor(tiers, mode);
+  if (!tier) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
+
+  const charge = resolveCharge(tier.prices, chosenCurrency, country);
+  if (!charge) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
+  const amount = charge.amount;
+
+  // A method the payer names must be one that can settle this currency, or
+  // the charge would fail at the processor after they had committed.
   if (str(methodKey) !== '') {
-    const offered = await enabledPaymentMethods(
-      db,
-      str(registration.event_id),
+    const offered = FlutterwavePaymentService.offeredFor(
       secrets,
+      charge.currency,
     );
     if (!offered.some((option) => option.key === methodKey)) {
       return { ok: false, code: 'UNSUPPORTED_PAYMENT_METHOD' };
@@ -758,7 +851,7 @@ export async function beginEventPayment(
   const result = await initialisePayment(method, secrets, {
     reference,
     amount,
-    currency: str(registration.currency) || 'NGN',
+    currency: charge.currency,
     email: str(registration.email),
     name: `${str(registration.first_name)} ${str(registration.last_name)}`.trim(),
     phone: str(registration.phone),
@@ -789,7 +882,7 @@ export async function beginEventPayment(
       result.transactionId ?? null,
       result.checkoutUrl ?? null,
       amount,
-      str(registration.currency) || 'NGN',
+      charge.currency,
       result.checkoutUrl ? 'PROCESSING' : 'PENDING',
       str(methodKey),
       // Transfer details or a USSD string, for the payer to act on. No card
@@ -807,16 +900,23 @@ export async function beginEventPayment(
       .run();
   }
 
+  // The registration carried the base price from the event. Once a payer has
+  // chosen, it carries what they are actually being charged instead, so a
+  // receipt, a refund and the dashboard all quote the figure that was paid
+  // rather than the naira price of a payment made in dollars.
   await db
     .prepare(
       `UPDATE event_registrations
           SET status = ?1, payment_status = ?2,
+              amount = ?3, currency = ?4, chosen_currency = ?4,
               last_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?3`,
+        WHERE id = ?5`,
     )
     .bind(
       result.checkoutUrl ? 'PAYMENT_PROCESSING' : 'PAYMENT_PENDING',
       result.checkoutUrl ? 'PROCESSING' : 'PENDING',
+      amount,
+      charge.currency,
       registration.id,
     )
     .run();
@@ -832,7 +932,7 @@ export async function beginEventPayment(
       next_action: result.nextAction ?? {},
       payment_method: str(methodKey),
       amount,
-      currency: str(registration.currency) || 'NGN',
+      currency: charge.currency,
     },
   };
 }

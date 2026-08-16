@@ -57,7 +57,7 @@ class LearnerHeader extends ConsumerWidget {
             // lockup, so brand presence is not lost.
             compact
                 ? const WEABrand(compact: true)
-                : const WEABrandLockup(height: 46),
+                : const WEABrandLockup(height: 46, linkToHome: true),
             const SizedBox(width: WEAInsets.xs),
           ],
           Expanded(

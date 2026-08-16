@@ -77,7 +77,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         elevation: 0,
         toolbarHeight: 84,
         titleSpacing: WEAInsets.lg,
-        title: const WEABrandLockup(height: 56, onDark: true),
+        title: const WEABrandLockup(height: 56, onDark: true, linkToHome: true),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: WEAInsets.lg),

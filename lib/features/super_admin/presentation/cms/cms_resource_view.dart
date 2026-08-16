@@ -605,7 +605,16 @@ class _CmsEditorDialogState extends ConsumerState<_CmsEditorDialog> {
                         CmsFieldEditor(
                           field: field,
                           value: _values[field.column],
-                          onChanged: (value) => _values[field.column] = value,
+                          // Rebuilt on every change, because the switches,
+                          // dropdowns and pickers render straight from `value`
+                          // and hold no state of their own — without this a
+                          // toggle silently records the change and goes on
+                          // showing the old position. The editors that do keep
+                          // a controller keep it across the rebuild, so a
+                          // half-typed field is never disturbed.
+                          onChanged: (value) => setState(() {
+                            _values[field.column] = value;
+                          }),
                         ),
                         const SizedBox(height: WEAInsets.md),
                       ],

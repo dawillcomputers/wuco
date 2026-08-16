@@ -1,7 +1,27 @@
 /** Shared request/response helpers used by every route module. */
 
 const CORS_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
-const CORS_HEADERS = 'Content-Type, Authorization, X-Bootstrap-Token';
+
+/**
+ * Every header a client is allowed to send.
+ *
+ * This list is not documentation — a browser refuses the preflight for any
+ * header missing from it, and the request never reaches the Worker. So an
+ * omission here does not weaken anything; it silently breaks the feature that
+ * sends the header, on web only, with no server-side trace.
+ *
+ * Keep it in step with what the clients actually send:
+ *   X-Filename           image upload  (api_catalogue_repository.uploadImage)
+ *   X-Registration-Token guest resume  (api_events_repository)
+ *   X-Bootstrap-Token    one-time Super Admin bootstrap
+ */
+const CORS_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'X-Bootstrap-Token',
+  'X-Filename',
+  'X-Registration-Token',
+].join(', ');
 
 export function corsHeaders(origin?: string) {
   return {

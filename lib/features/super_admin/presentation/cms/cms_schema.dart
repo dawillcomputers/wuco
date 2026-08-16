@@ -11,6 +11,9 @@ enum CmsFieldKind {
   status,
   image,
   stringList,
+  /// Prices in several currencies, edited as `USD 1500` lines and stored as
+  /// `{"USD": 1500}`. WEA never converts, so each one is set deliberately.
+  prices,
   /// A calendar date, stored as `YYYY-MM-DD`.
   date,
   /// A date and a time, stored as `YYYY-MM-DDTHH:MM:SS`.
@@ -246,13 +249,13 @@ const cmsResources = <CmsResource>[
       CmsField(column: 'cpd_points', label: 'CPD points', kind: CmsFieldKind.number),
       CmsField(column: 'capacity', label: 'Capacity', kind: CmsFieldKind.number),
       CmsField(
-        column: 'enabled_payment_methods',
-        label: 'Tuition payment methods',
-        kind: CmsFieldKind.stringList,
+        column: 'prices',
+        label: 'Tuition in other currencies',
+        kind: CmsFieldKind.prices,
         help:
-            'One per line: bank_transfer, ussd, opay, nqr, card, bank_account. '
-            'Leave empty to collect tuition by transfer or invoice instead. A '
-            'method only appears if your Flutterwave account supports it too.',
+            'One per line, e.g. "USD 1500". The tuition above is the base '
+            'price. WEA never converts — a currency with no price set here is '
+            'simply not offered, so set each one deliberately.',
       ),
       CmsField(
         column: 'registration_open',
@@ -644,11 +647,25 @@ const cmsResources = <CmsResource>[
         column: 'registration_opens_at',
         label: 'Registration opens',
         kind: CmsFieldKind.dateTime,
+        help:
+            'Leave empty — the usual case — and registration opens the moment '
+            'you publish. Set it only to put the event page up in advance and '
+            'let bookings start later.',
       ),
       CmsField(
         column: 'registration_closes_at',
         label: 'Registration closes',
         kind: CmsFieldKind.dateTime,
+        help: 'Leave empty to keep taking registrations until the event.',
+      ),
+      CmsField(
+        column: 'registration_paused',
+        label: 'Pause registration',
+        kind: CmsFieldKind.toggle,
+        help:
+            'Stops new registrations while leaving the event page up. Use this '
+            'rather than unpublishing, which hides the event from everyone who '
+            'already has the link.',
       ),
       CmsField(
         column: 'capacity',
@@ -660,33 +677,34 @@ const cmsResources = <CmsResource>[
         column: 'fee_amount',
         label: 'Registration fee',
         kind: CmsFieldKind.currency,
-        help: 'Zero makes the event free to attend.',
+        help:
+            'What one place costs. Zero means no payment is asked for and the '
+            'registrant is confirmed as soon as the form is submitted.',
       ),
       CmsField(column: 'fee_currency', label: 'Currency'),
+      // There is deliberately no payment-method field here. Which methods a
+      // payer is offered — card, transfer, USSD — comes from the Flutterwave
+      // account and the currency being charged, decided by the Worker at the
+      // moment of payment. Setting it per event duplicated a decision
+      // Flutterwave already holds, and got it wrong: a new event silently
+      // offered nothing until somebody remembered to tick the boxes.
       CmsField(
-        column: 'payment_method_id',
-        label: 'Payment method',
-        kind: CmsFieldKind.reference,
-        referenceResource: 'payment-methods',
+        column: 'prices',
+        label: 'Fee in other currencies',
+        kind: CmsFieldKind.prices,
         help:
-            'Which configured method collects the fee. A gateway takes payment '
-            'online; anything else shows your instructions instead.',
-      ),
-      CmsField(
-        column: 'enabled_payment_methods',
-        label: 'Payment methods offered',
-        kind: CmsFieldKind.stringList,
-        help:
-            'One per line: bank_transfer, ussd, opay, nqr, card, bank_account. '
-            'A method only appears to a payer if your Flutterwave account and '
-            'this deployment support it as well — listing it here is a '
-            'permission, not a promise.',
+            'Switch on each currency you sell in and set the amount. Together '
+            'with the fee above, this is what the event charges when it has no '
+            'Registration fees rows — add those for an early bird rate, or '
+            'different rates for attending in person and online.',
       ),
       CmsField(
         column: 'payment_instructions',
         label: 'Payment instructions',
         kind: CmsFieldKind.multiline,
-        help: 'Shown when no online method is available for this event.',
+        help:
+            'Shown only when this deployment holds no Flutterwave credentials, '
+            'so there is no online payment to offer. Normally left empty.',
       ),
       CmsField(column: 'contact_email', label: 'Event contact email'),
       CmsField(column: 'contact_phone', label: 'Event contact phone'),
@@ -729,6 +747,74 @@ const cmsResources = <CmsResource>[
         help:
             'Published events accept registrations. Registration closed keeps '
             'the page up but takes no more.',
+      ),
+    ],
+  ),
+  CmsResource(
+    name: 'event-prices',
+    singular: 'Registration fee',
+    plural: 'Registration fees',
+    icon: Icons.sell_outlined,
+    hasStatus: false,
+    titleColumn: 'tier_label',
+    subtitleColumn: 'attendance_mode',
+    filterBy: ('event_id', 'events'),
+    description:
+        'One row per rate. A rate that ends on a date is an early bird; the '
+        'row with no end date is what everyone pays afterwards. An event with '
+        'no rows here keeps charging the fee set on the event itself, so '
+        'nothing changes until you add one.',
+    fields: [
+      CmsField(
+        column: 'event_id',
+        label: 'Event',
+        kind: CmsFieldKind.reference,
+        referenceResource: 'events',
+        required: true,
+      ),
+      CmsField(
+        column: 'tier_label',
+        label: 'Rate',
+        required: true,
+        help: 'Shown to the registrant, e.g. "Early Bird" or "Standard".',
+      ),
+      CmsField(
+        column: 'attendance_mode',
+        label: 'Applies to',
+        kind: CmsFieldKind.select,
+        options: ['ANY', 'PHYSICAL', 'VIRTUAL'],
+        optionLabels: {
+          'ANY': 'Everyone (event has one way to attend)',
+          'PHYSICAL': 'Attending in person',
+          'VIRTUAL': 'Attending online',
+        },
+        help:
+            'Use Everyone unless the event format is Hybrid. A hybrid event '
+            'needs one row per rate for each way of attending.',
+      ),
+      CmsField(
+        column: 'prices',
+        label: 'Price',
+        kind: CmsFieldKind.prices,
+        help:
+            'One per line, e.g. "NGN 150000". Add a line per currency you sell '
+            'in — WEA never converts, so a currency with no price here is '
+            'simply not offered for this rate.',
+      ),
+      CmsField(
+        column: 'available_from',
+        label: 'Available from',
+        kind: CmsFieldKind.dateTime,
+        help: 'Leave empty to make it available as soon as booking opens.',
+      ),
+      CmsField(
+        column: 'available_until',
+        label: 'Available until',
+        kind: CmsFieldKind.dateTime,
+        help:
+            'This is what makes a rate an early bird. Leave empty for the rate '
+            'that applies once the others have closed. Where two rates are '
+            'open at once, the one closing soonest is charged.',
       ),
     ],
   ),

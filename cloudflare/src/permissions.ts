@@ -78,7 +78,24 @@ export type Permission =
   | 'payment.reconcile'
   // Enquiries
   | 'enquiry.read'
-  | 'enquiry.reply';
+  | 'enquiry.reply'
+  // Video
+  //
+  // `video.upload` is the right to add a video at all; `video.manage.all` is
+  // the right to touch somebody else's. A lecturer holds the first and not
+  // the second, which is what "own videos only" means in practice — the rule
+  // is enforced by the handler asking these two questions, not by the client
+  // hiding a button.
+  | 'video.upload'
+  | 'video.manage.all'
+  // Live events
+  //
+  // Creating an event and putting it on air are deliberately separate
+  // permissions. Scheduling something is reversible; transitioning a
+  // broadcast to live is what an audience sees, and is the action worth
+  // holding more narrowly.
+  | 'live.create'
+  | 'live.control';
 
 /** Everything an event manager may do on an event assigned to them. */
 const EVENT_MANAGER_PERMISSIONS: Permission[] = [
@@ -104,6 +121,10 @@ const ADMIN_PERMISSIONS: Permission[] = [
   'event.publish',
   'enquiry.read',
   'enquiry.reply',
+  'video.upload',
+  'video.manage.all',
+  'live.create',
+  'live.control',
 ];
 
 const SUPER_ADMIN_PERMISSIONS: Permission[] = [
@@ -132,7 +153,9 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   // An event manager's reach is narrowed further by assignment: the role
   // grants the verbs, `event_managers` decides which events they apply to.
   EVENT_MANAGER: [...EVENT_MANAGER_PERMISSIONS, 'catalogue.read'],
-  LECTURER: ['catalogue.read', 'event.read'],
+  // A lecturer may add teaching video and manage what they added. Not
+  // anybody else's, and nothing to do with live broadcasts.
+  LECTURER: ['catalogue.read', 'event.read', 'video.upload'],
   LEARNER: ['catalogue.read', 'event.read'],
   APPLICANT: ['catalogue.read', 'event.read'],
   PROFESSIONAL_MEMBER: ['catalogue.read', 'event.read'],
