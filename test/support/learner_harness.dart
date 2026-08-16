@@ -49,6 +49,16 @@ class FakeAuthRepository implements AuthRepository {
   @override
   Future<UserProfile?> restoreSession() async => _profile;
 
+  /// No provider in a widget test: the learner area never signs anybody in.
+  @override
+  Future<List<SocialProvider>> socialProviders() async => const [];
+
+  @override
+  Future<UserProfile> signInWithProvider({
+    required String provider,
+    required String idToken,
+  }) async => throw UnimplementedError();
+
   @override
   Future<UserProfile> signIn({
     required String email,

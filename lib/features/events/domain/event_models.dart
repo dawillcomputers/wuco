@@ -62,11 +62,11 @@ enum EventFormat {
     _ => EventFormat.online,
   };
 
-  /// How the academy names it. The stored value for [physical] is still
-  /// `PHYSICAL`; walk-in is what it is called.
+  /// How the academy names it. Physical means in the room, as against
+  /// attending online.
   String get label => switch (this) {
     EventFormat.online => 'Online',
-    EventFormat.physical => 'Walk-in',
+    EventFormat.physical => 'Physical',
     EventFormat.hybrid => 'Hybrid',
   };
 

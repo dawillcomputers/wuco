@@ -66,6 +66,16 @@ const _guestOnly = <String>{'/login', '/register', '/forgot-password'};
 bool _isProtected(String location) =>
     _protectedPrefixes.any((prefix) => location.startsWith(prefix));
 
+/// Whether the visitor is part-way through registering for an event.
+///
+/// These are the two screens where a registration is completed and paid for.
+/// Registering can create the account whose temporary password would otherwise
+/// trigger a redirect, so interrupting here would mean the flow could never
+/// reach its own payment step.
+bool _completingEventRegistration(String location) =>
+    location.startsWith('/events/') &&
+    (location.endsWith('/register') || location.contains('/registration/'));
+
 /// The application router. Exposed as a provider so route guards can observe
 /// authentication without widgets re-implementing the rules.
 final routerProvider = Provider<GoRouter>((ref) {
@@ -420,10 +430,20 @@ String? _guard(AuthState auth, String location) {
   final profile = auth.profile;
   final signedIn = auth.isAuthenticated && profile != null;
 
-  // A temporary password gets one destination until it is replaced.
+  // A temporary password gets one destination until it is replaced — with one
+  // exception, which exists because the rule was interrupting the very thing
+  // that created the password.
+  //
+  // Registering for an event creates an account and issues a temporary
+  // password. That made this redirect fire the instant the registrant pressed
+  // "continue to payment": they were pulled out of a half-finished paid
+  // registration and shown a password form, and the payment never started.
+  // Finishing the registration comes first; the password is asked for
+  // afterwards, everywhere else.
   if (profile != null &&
       profile.mustChangePassword &&
-      location != '/change-password') {
+      location != '/change-password' &&
+      !_completingEventRegistration(location)) {
     return '/change-password';
   }
 

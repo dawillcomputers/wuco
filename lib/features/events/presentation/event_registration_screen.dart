@@ -157,6 +157,13 @@ class _EventRegistrationScreenState
         // Shown once, on this screen only. It is also emailed, and it stops
         // working the moment they choose their own password.
         _temporaryPassword = saved.temporaryPassword ?? _temporaryPassword;
+        // Kept for the change-password screen, so somebody who has just been
+        // shown a generated password is not asked to type it back in.
+        if (saved.temporaryPassword != null) {
+          ref
+              .read(issuedTemporaryPasswordProvider.notifier)
+              .remember(saved.temporaryPassword);
+        }
         _busy = false;
         _step = next;
       });

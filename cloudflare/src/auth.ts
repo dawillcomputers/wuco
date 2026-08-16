@@ -8,7 +8,18 @@
  */
 
 export const PBKDF2_ITERATIONS = 100_000;
-export const SESSION_TTL_DAYS = 14;
+/**
+ * How long a session lasts without being used.
+ *
+ * Three months, because the academy's people come back between cohorts rather
+ * than daily, and signing a learner out between two modules taught a month
+ * apart achieves nothing except a forgotten password. The session is extended
+ * on use, so somebody who visits at all is never signed out; only genuine
+ * absence expires it.
+ *
+ * Signing out still ends it immediately, everywhere, as does a password reset.
+ */
+export const SESSION_TTL_DAYS = 90;
 export const RESET_TTL_MINUTES = 60;
 
 export type Role =

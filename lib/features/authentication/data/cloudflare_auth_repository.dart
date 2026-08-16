@@ -145,6 +145,39 @@ class CloudflareAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<List<SocialProvider>> socialProviders() async {
+    try {
+      final body = await _send('GET', '/api/auth/providers');
+      final rows = body['providers'];
+      if (rows is! List) return const [];
+      return [
+        for (final row in rows)
+          if (row is Map<String, dynamic>) SocialProvider.fromMap(row),
+      ];
+    } on AuthFailure {
+      // Not being able to ask which providers exist is not a reason to keep
+      // somebody off the sign-in screen; the password form still works.
+      return const [];
+    }
+  }
+
+  @override
+  Future<UserProfile> signInWithProvider({
+    required String provider,
+    required String idToken,
+  }) async {
+    final body = await _send(
+      'POST',
+      '/api/auth/social',
+      body: {'provider': provider, 'id_token': idToken},
+    );
+    await _storeSession(body);
+    final profile = _profile(body);
+    _controller.add(profile);
+    return profile;
+  }
+
+  @override
   Future<UserProfile> signUp({
     required String email,
     required String password,

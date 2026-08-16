@@ -7,6 +7,7 @@ import '../../../app/theme/app_dimensions.dart';
 import '../application/auth_controller.dart';
 import '../domain/auth_state.dart';
 import 'auth_scaffold.dart';
+import 'widgets/social_sign_in_section.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -107,6 +108,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 busy: busy,
                 onPressed: _submit,
               ),
+              // Renders nothing unless the deployment has a provider
+              // configured. Navigation is left to the router guard, exactly as
+              // for the password form.
+              const SocialSignInSection(),
               const SizedBox(height: WEAInsets.lg),
               Row(
                 children: [

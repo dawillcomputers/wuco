@@ -49,7 +49,20 @@
     // stays empty: this is the server-side authorization-code flow, and no
     // browser script ever calls Google.
     // ---------------------------------------------------------------------
-    "GOOGLE_REDIRECT_URI": "https://wuco-api.dawillcomputers.workers.dev/api/auth/youtube/callback"
+    "GOOGLE_REDIRECT_URI": "https://wuco-api.dawillcomputers.workers.dev/api/auth/youtube/callback",
+    // Public by design — it appears in the consent URL in the user's own
+    // address bar — so it lives here where it can be reviewed rather than in
+    // `wrangler secret`. Only the client secret is hidden.
+    //
+    // One Google client does both jobs here: it signs people in, and it acts
+    // on the academy's YouTube channel. That works because this client has
+    // https://wuco.pages.dev among its authorised JavaScript origins (which
+    // sign-in needs, from the browser) *and* the Worker's callback among its
+    // authorised redirect URIs (which YouTube needs, server-side).
+    //
+    // To separate them later, set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET
+    // to the channel client; they take precedence and leave sign-in on this one.
+    "GOOGLE_CLIENT_ID": "513554804350-g624hsfnc6q48305enf9haesuvqmquq9.apps.googleusercontent.com"
   },
   // BOOTSTRAP_TOKEN is a secret, not a var. Set it with:
   //   npx wrangler secret put BOOTSTRAP_TOKEN

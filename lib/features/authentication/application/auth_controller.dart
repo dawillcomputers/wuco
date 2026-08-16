@@ -5,6 +5,7 @@ import '../data/auth_repository.dart';
 import '../data/cloudflare_auth_repository.dart';
 import '../data/in_memory_auth_repository.dart';
 import '../data/session_store.dart';
+import '../data/social_sign_in.dart';
 import '../domain/account_status.dart';
 import '../domain/auth_failure.dart';
 import '../domain/auth_state.dart';
@@ -30,6 +31,35 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
 final authControllerProvider = NotifierProvider<AuthController, AuthState>(
   AuthController.new,
 );
+
+/// A temporary password this session has just issued, held until it is used.
+///
+/// Registering for an event can create an account, and the password it
+/// generates is shown once and emailed. When that person is then asked to
+/// choose their own, asking them to re-type a random string they were shown a
+/// screen ago — or to go and find the email — is a needless way to lose them.
+///
+/// In memory only, and never persisted: it is a credential, and it stops
+/// working the moment a real password replaces it.
+class IssuedTemporaryPassword extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void remember(String? password) => state = password;
+
+  /// Read once and forgotten, so it cannot be prefilled a second time for
+  /// whoever next opens the screen.
+  String? take() {
+    final password = state;
+    state = null;
+    return password;
+  }
+}
+
+final issuedTemporaryPasswordProvider =
+    NotifierProvider<IssuedTemporaryPassword, String?>(
+      IssuedTemporaryPassword.new,
+    );
 
 /// Convenience reads so widgets do not pattern-match state everywhere.
 final currentProfileProvider = Provider<UserProfile?>(
@@ -99,6 +129,22 @@ class AuthController extends Notifier<AuthState> {
         state = _stateFor(profile);
       }, loadingMessage: 'Signing in…');
 
+  /// Completes a sign-in that a provider has already proved.
+  ///
+  /// The ID token is not a credential this application may interpret — it is
+  /// passed to the API, which verifies it against the provider's own public
+  /// keys and decides whether it names an account.
+  Future<bool> signInWithProvider({
+    required String provider,
+    required String idToken,
+  }) => _guard(() async {
+    final profile = await _repository.signInWithProvider(
+      provider: provider,
+      idToken: idToken,
+    );
+    state = _stateFor(profile);
+  }, loadingMessage: 'Signing in…');
+
   Future<bool> signUp({
     required String email,
     required String password,
@@ -123,6 +169,10 @@ class AuthController extends Notifier<AuthState> {
     try {
       await _repository.signOut();
     } finally {
+      // The Google session goes too. Leaving it would sign the same person
+      // straight back in, which is not what anybody pressing "sign out" on a
+      // shared machine means.
+      await SocialSignIn.instance.signOut();
       state = const AuthState.unauthenticated();
     }
   }

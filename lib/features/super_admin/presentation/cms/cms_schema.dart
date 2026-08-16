@@ -44,7 +44,7 @@ class CmsField {
   final List<String> options;
 
   /// How a stored value should read in the dropdown, where the two differ.
-  /// The database keeps `PHYSICAL`; an operator should see "Walk-in".
+  /// The database keeps `PHYSICAL`; an operator should see "Physical".
   final Map<String, String> optionLabels;
 
   /// The wording for one option, falling back to the value itself.
@@ -635,10 +635,10 @@ const cmsResources = <CmsResource>[
         label: 'How to attend',
         kind: CmsFieldKind.select,
         // The stored values are fixed by a CHECK constraint on the table;
-        // only the wording changes here. PHYSICAL is walk-in.
+        // only the wording changes here.
         options: ['PHYSICAL', 'ONLINE', 'HYBRID'],
         optionLabels: {
-          'PHYSICAL': 'Walk-in',
+          'PHYSICAL': 'Physical',
           'ONLINE': 'Online',
           'HYBRID': 'Hybrid',
         },

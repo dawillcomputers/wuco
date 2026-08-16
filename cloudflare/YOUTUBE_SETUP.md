@@ -68,21 +68,53 @@ On the OAuth consent screen, add the account that owns the WUCO channel as a
 
 ## 4. Set the Worker configuration
 
-The redirect URI is not a secret — it travels in the browser's address bar — so
-it lives in `wrangler.jsonc` where it can be reviewed. Replace
-`REPLACE_WITH_WORKER_HOST` in the `GOOGLE_REDIRECT_URI` var.
+Two of the three values are **not** secrets. The client id and the redirect URI
+both travel in the browser's address bar during consent, so they live in
+`wrangler.jsonc` where they can be reviewed in version control. Only the client
+secret is hidden.
 
-The client secret **is** a secret:
+All wrangler commands must run from the `cloudflare` directory — that is where
+`wrangler.jsonc` is. Run them from the repository root and wrangler reports
+`Required Worker name missing`, because it found no configuration.
 
-```bash
-npx wrangler secret put GOOGLE_CLIENT_SECRET
+In `wrangler.jsonc` under `vars`:
+
+```jsonc
+"GOOGLE_REDIRECT_URI": "https://<worker-host>/api/auth/youtube/callback",
+"GOOGLE_CLIENT_ID": "123456789-abc.apps.googleusercontent.com"
 ```
 
-`GOOGLE_CLIENT_ID` is already in the Env for social sign-in. If the YouTube
-client is a different one, set it as a var too. Optionally set `ADMIN_SITE_URL`
-to control where the callback page's "Back to WUCO" link points.
+Then the secret, which prompts for the value:
 
-Never put the client secret, or any token, in the Flutter app. Anything shipped
+```bash
+cd cloudflare
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler deploy
+```
+
+### One client or two
+
+`GOOGLE_CLIENT_ID` is also what Google **sign-in** verifies its ID tokens
+against. If the same Google client does both jobs, set only the `GOOGLE_*`
+values and stop here.
+
+If you made a separate client for YouTube — which is tidier, since acting on a
+channel needs a confidential client with a secret and signing people in does
+not — set the YouTube pair instead. They win where present, and sign-in keeps
+its own:
+
+```jsonc
+"YOUTUBE_CLIENT_ID": "987654321-xyz.apps.googleusercontent.com"
+```
+
+```bash
+npx wrangler secret put YOUTUBE_CLIENT_SECRET
+```
+
+Optionally set `ADMIN_SITE_URL` to control where the callback page's "Back to
+WUCO" link points.
+
+Never put a client secret, or any token, in the Flutter app. Anything shipped
 to a client is readable by anyone who has the app.
 
 ## 5. Apply the migration

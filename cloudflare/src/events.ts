@@ -436,6 +436,15 @@ export async function saveEventRegistration(
   idOrSlug: string,
   body: Record<string, unknown>,
   actor: Actor | null,
+  /**
+   * Where the request came from, as Cloudflare saw it.
+   *
+   * The same signal the price on screen was chosen with. Taking the currency
+   * from the country typed into the form instead would let the two disagree —
+   * the page offering naira while the saved registration recorded dollars —
+   * which is precisely the confusion this parameter exists to prevent.
+   */
+  requestCountry = '',
 ): Promise<EventResult> {
   const event = await db
     .prepare('SELECT * FROM events WHERE id = ?1 OR slug = ?1')
@@ -517,7 +526,11 @@ export async function saveEventRegistration(
   // rewrites it with what they actually chose to be charged.
   const tier = tierFor(tiers, mode);
   const initial = tier
-    ? resolveCharge(tier.prices, '', str(body.country) || str(existing?.country))
+    ? resolveCharge(
+        tier.prices,
+        '',
+        requestCountry || str(body.country) || str(existing?.country),
+      )
     : null;
   const fee = initial?.amount ?? 0;
   const feeCurrency = initial?.currency || str(event.fee_currency) || 'NGN';
@@ -767,17 +780,6 @@ export async function feeTiersFor(
   return implicitTier(event ?? {});
 }
 
-async function paymentMethodFor(
-  db: D1Database,
-  methodId: unknown,
-): Promise<PaymentMethodRow | null> {
-  if (!methodId) return null;
-  return db
-    .prepare('SELECT * FROM payment_methods WHERE id = ?1 AND is_active = 1')
-    .bind(methodId)
-    .first<PaymentMethodRow>();
-}
-
 /**
  * Starts a payment for a registration.
  *
@@ -844,11 +846,18 @@ export async function beginEventPayment(
     }
   }
 
-  const method = await paymentMethodFor(db, registration.payment_method_id);
-  const provider = providerNameFor(method, secrets, str(methodKey));
+  // Deliberately null, exactly as tuition does: the processor decides how a
+  // payment is taken, not a method row somebody selected on the event.
+  //
+  // Reading `payment_method_id` here is what sent an online payment down the
+  // manual bank-transfer path — the event still pointed at a transfer method
+  // configured long before Flutterwave was wired in, so pressing "continue to
+  // payment" produced instructions instead of a checkout. The column stays in
+  // the table for the record of what was once configured; nothing consults it.
+  const provider = providerNameFor(null, secrets, str(methodKey));
   const reference = `${str(registration.reference)}-${Date.now().toString(36)}`;
 
-  const result = await initialisePayment(method, secrets, {
+  const result = await initialisePayment(null, secrets, {
     reference,
     amount,
     currency: charge.currency,
@@ -927,7 +936,11 @@ export async function beginEventPayment(
       provider,
       payment_reference: reference,
       checkout_url: result.checkoutUrl ?? null,
-      instructions: result.instructions ?? str(method?.instructions),
+      // Whatever the processor said to do next. There is no local fallback:
+      // an event's own instructions belong to the manual path this no longer
+      // takes, and showing bank details beside a live checkout would tell the
+      // payer to do two different things.
+      instructions: result.instructions ?? '',
       // What a direct-charge method needs the payer to do next.
       next_action: result.nextAction ?? {},
       payment_method: str(methodKey),

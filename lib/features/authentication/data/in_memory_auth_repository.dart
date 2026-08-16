@@ -103,6 +103,18 @@ class InMemoryAuthRepository implements AuthRepository {
   @override
   Future<UserProfile?> restoreSession() async => _requireCurrent()?.profile;
 
+  /// Nothing is configured offline, so no provider is offered. Showing a
+  /// Google button that cannot complete would be the exact mistake the live
+  /// path avoids.
+  @override
+  Future<List<SocialProvider>> socialProviders() async => const [];
+
+  @override
+  Future<UserProfile> signInWithProvider({
+    required String provider,
+    required String idToken,
+  }) async => throw const AuthFailure(AuthFailureKind.invalidCredentials);
+
   @override
   Future<UserProfile> signIn({
     required String email,

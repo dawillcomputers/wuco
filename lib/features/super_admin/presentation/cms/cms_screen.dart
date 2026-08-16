@@ -41,6 +41,9 @@ class _CmsScreenState extends ConsumerState<CmsScreen> {
   /// Catalogue, so adding a resource still appears without touching this.
   static const _eventResources = [
     'events',
+    // Directly after the event itself: the fee table is part of setting an
+    // event up, not a catalogue entity somebody goes looking for.
+    'event-prices',
     'event-registration-fields',
     'event-materials',
     'event-sessions',

@@ -203,6 +203,9 @@ export interface Env {
   // scheme and path — Google compares it as a literal string.
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_REDIRECT_URI?: string;
+  // Set only when the YouTube client differs from the sign-in client above.
+  YOUTUBE_CLIENT_ID?: string;
+  YOUTUBE_CLIENT_SECRET?: string;
   /** Where the callback sends the administrator's browser when it is done. */
   ADMIN_SITE_URL?: string;
 
@@ -292,6 +295,24 @@ async function authenticate(request: Request, env: Env): Promise<UserRow | null>
       .run();
     return null;
   }
+
+  // Sliding expiry: the clock measures absence, not age. Somebody who keeps
+  // using WEA is never signed out; only three months of not coming back ends
+  // a session.
+  //
+  // Rewritten only once the session has drifted more than a day from full,
+  // so this costs at most one write per user per day rather than one on every
+  // request.
+  const full = SESSION_TTL_DAYS * 86_400_000;
+  const remaining = Date.parse(session.expires_at) - Date.now();
+  if (Number.isFinite(remaining) && remaining < full - 86_400_000) {
+    await env.WEA_DB.prepare(
+      'UPDATE sessions SET expires_at = ?1 WHERE token_hash = ?2',
+    )
+      .bind(isoIn(full), tokenHash)
+      .run();
+  }
+
   return findUserById(env, session.user_id);
 }
 
@@ -1223,6 +1244,10 @@ export default {
           decodeURIComponent(eventRegisterMatch[1]),
           body,
           actor,
+          // The same country the displayed price was chosen with, so the saved
+          // registration cannot record a different currency from the one the
+          // registrant was quoted.
+          countryOf(request),
         );
         if (!result.ok) {
           const status =

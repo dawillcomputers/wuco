@@ -67,6 +67,17 @@ const EXPIRY_SKEW_SECONDS = 120;
 export interface YouTubeEnv {
   WEA_DB: D1Database;
   WUCO_TOKENS: KVNamespace;
+  /**
+   * The YouTube client, when it is a different one from sign-in's.
+   *
+   * `GOOGLE_CLIENT_ID` is already the audience Google *sign-in* verifies ID
+   * tokens against. Acting on the channel needs a confidential client with a
+   * secret, which is a different thing from a sign-in client, and an academy
+   * that keeps them separate would otherwise have one variable trying to be
+   * both. Set these when they differ; leave them unset to use the Google pair.
+   */
+  YOUTUBE_CLIENT_ID?: string;
+  YOUTUBE_CLIENT_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_REDIRECT_URI?: string;
@@ -88,8 +99,10 @@ export interface YouTubeConfig {
  * configured" instead of offering a Connect button that fails on click.
  */
 export function resolveYouTubeConfig(env: YouTubeEnv): YouTubeConfig {
-  const clientId = str(env.GOOGLE_CLIENT_ID);
-  const clientSecret = str(env.GOOGLE_CLIENT_SECRET);
+  // The YouTube-specific pair wins where it is set, so one deployment can hold
+  // a sign-in client and a channel client at once.
+  const clientId = str(env.YOUTUBE_CLIENT_ID) || str(env.GOOGLE_CLIENT_ID);
+  const clientSecret = str(env.YOUTUBE_CLIENT_SECRET) || str(env.GOOGLE_CLIENT_SECRET);
   const redirectUri = str(env.GOOGLE_REDIRECT_URI);
 
   const missing: string[] = [];
