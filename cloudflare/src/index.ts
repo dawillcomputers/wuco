@@ -346,6 +346,36 @@ async function issueToken(
   return token;
 }
 
+/**
+ * A one-time link that lets somebody set their own password.
+ *
+ * The same token machinery as "forgot password", used deliberately rather than
+ * inventing a second kind of link: it is single-use — `consumeToken` marks it
+ * spent the moment it is redeemed — and it expires an hour after it is issued.
+ * So a link forwarded on, or left sitting in an inbox, stops working, and one
+ * that has already been used cannot be replayed by anybody who later reads the
+ * message.
+ *
+ * Returned to the administrator who asked for it so they can pass it on
+ * themselves — read out, pasted into a chat — as well as being emailed.
+ */
+async function setPasswordLink(
+  env: Env,
+  userId: string,
+): Promise<{ url: string; expiresAt: string }> {
+  const token = await issueToken(
+    env,
+    userId,
+    'PASSWORD_RESET',
+    RESET_TTL_MINUTES * 60_000,
+  );
+  const site = (await publicSiteUrl(env)).replace(/\/$/, '');
+  return {
+    url: `${site}/reset-password?token=${encodeURIComponent(token)}`,
+    expiresAt: isoIn(RESET_TTL_MINUTES * 60_000),
+  };
+}
+
 /// Explicit union so `'error' in result` narrows to a definite `userId`.
 /// Neither member may declare the other's key, or `in` stops discriminating.
 type ConsumedToken =
@@ -2564,8 +2594,33 @@ export default {
             .run();
           await audit(env, actor.id, 'CREATE_USER', id, role);
           const row = await findUserById(env, id);
+
+          // A link as well as a password, because the two are used
+          // differently: the password is read out over a telephone, and the
+          // link is pasted into a message. Both are shown once to whoever
+          // created the account so the details can be passed on, and both are
+          // emailed so the new account holder has them without being told.
+          const link = await setPasswordLink(env, id);
+          mail('account_created', {
+            to: {
+              email,
+              name: `${str(body.first_name)} ${str(body.last_name)}`.trim(),
+            },
+            userId: id,
+            data: {
+              first_name: str(body.first_name),
+              temporary_password: password,
+              url: link.url,
+            },
+          });
+
           return json(
-            { profile: toProfile(row!), temporary_password: password },
+            {
+              profile: toProfile(row!),
+              temporary_password: password,
+              set_password_url: link.url,
+              set_password_expires_at: link.expiresAt,
+            },
             201,
             allowed,
           );
@@ -2597,6 +2652,11 @@ export default {
             .bind(target.id)
             .run();
 
+          // The link is what most people will actually use: it opens straight
+          // onto "set your password" and needs nothing typed. The temporary
+          // password stays alongside it for the person on the telephone who
+          // cannot reach their email at all.
+          const link = await setPasswordLink(env, target.id);
           mail('password_reset_by_office', {
             to: {
               email: target.email,
@@ -2606,10 +2666,20 @@ export default {
             data: {
               first_name: target.first_name,
               temporary_password: password,
+              url: link.url,
             },
           });
           await audit(env, actor.id, 'RESET_USER_PASSWORD', target.id);
-          return json({ ok: true, temporary_password: password }, 200, allowed);
+          return json(
+            {
+              ok: true,
+              temporary_password: password,
+              set_password_url: link.url,
+              set_password_expires_at: link.expiresAt,
+            },
+            200,
+            allowed,
+          );
         }
 
         const userMatch = path.match(/^\/api\/admin\/users\/([^/]+)$/);

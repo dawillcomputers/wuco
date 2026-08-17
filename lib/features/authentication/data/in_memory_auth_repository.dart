@@ -275,7 +275,7 @@ class InMemoryAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<({UserProfile profile, String temporaryPassword})> adminCreateUser({
+  Future<({UserProfile profile, IssuedCredentials credentials})> adminCreateUser({
     required String email,
     required UserRole role,
     String firstName = '',
@@ -304,7 +304,27 @@ class InMemoryAuthRepository implements AuthRepository {
       salt: _newSalt(),
     ).._setPassword(temporary);
     _users[key] = account;
-    return (profile: account.profile, temporaryPassword: temporary);
+    return (
+      profile: account.profile,
+      // No link offline: there is no site to send anybody to, and inventing
+      // one would be a URL that goes nowhere.
+      credentials: IssuedCredentials(email: key, temporaryPassword: temporary),
+    );
+  }
+
+  @override
+  Future<IssuedCredentials> adminResetPassword(String userId, String email) async {
+    _requireSuperAdmin();
+    final account = _users.values.firstWhere(
+      (candidate) => candidate.profile.id == userId,
+      orElse: () => throw const AuthFailure(AuthFailureKind.unknown),
+    );
+    final temporary = _newTemporaryPassword();
+    account._setPassword(temporary);
+    return IssuedCredentials(
+      email: account.profile.email,
+      temporaryPassword: temporary,
+    );
   }
 
   @override

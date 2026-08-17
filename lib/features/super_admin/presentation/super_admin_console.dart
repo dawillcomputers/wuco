@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,6 +9,7 @@ import '../../../data/services/public_content_service.dart';
 import '../../../shared/components/wea_brand.dart';
 import '../../../shared/components/wea_components.dart';
 import '../../authentication/application/auth_controller.dart';
+import '../../authentication/data/auth_repository.dart';
 import '../../authentication/domain/account_status.dart';
 import '../../authentication/domain/auth_failure.dart';
 import '../../authentication/domain/user_profile.dart';
@@ -90,10 +92,8 @@ class _SuperAdminConsoleState extends ConsumerState<SuperAdminConsole> {
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (context) => _TemporaryPasswordDialog(
-          email: created.profile.email,
-          password: created.temporaryPassword,
-        ),
+        builder: (context) =>
+            _TemporaryPasswordDialog(credentials: created.credentials),
       );
     } on AuthFailure catch (failure) {
       _report(failure.message, error: true);
@@ -150,6 +150,52 @@ class _SuperAdminConsoleState extends ConsumerState<SuperAdminConsole> {
         result.waive
             ? '${user.email} enrolled with payment waived.'
             : '${user.email} enrolled; payment pending.',
+      );
+    } on AuthFailure catch (failure) {
+      _report(failure.message, error: true);
+    }
+  }
+
+  /// Resets somebody's password for them.
+  ///
+  /// For the person who cannot receive the reset email, or who is on the
+  /// telephone now. Confirmed first because it signs them out everywhere: a
+  /// mis-click here ends whatever they were part-way through.
+  Future<void> _resetPassword(UserProfile user) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset password?'),
+        content: Text(
+          '${user.email} will be signed out everywhere and asked to choose a '
+          'new password. A one-time link and a temporary password are emailed '
+          'to them, and shown to you so you can pass them on.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('RESET PASSWORD'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final issued = await ref
+          .read(authControllerProvider.notifier)
+          .resetUserPassword(user.id, user.email);
+      _reload();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => _TemporaryPasswordDialog(
+          credentials: issued,
+          title: 'Password reset',
+        ),
       );
     } on AuthFailure catch (failure) {
       _report(failure.message, error: true);
@@ -303,6 +349,7 @@ class _SuperAdminConsoleState extends ConsumerState<SuperAdminConsole> {
                       onChangeStatus: _changeStatus,
                       onEnrol: _enrol,
                       onChangeRole: _changeRole,
+                      onResetPassword: _resetPassword,
                     );
                   },
                 ),
@@ -322,6 +369,7 @@ class _UserTable extends StatelessWidget {
     required this.onEnrol,
     required this.onChangeRole,
     required this.onChangeStatus,
+    required this.onResetPassword,
   });
 
   final List<UserProfile> users;
@@ -329,6 +377,7 @@ class _UserTable extends StatelessWidget {
   final ValueChanged<UserProfile> onEnrol;
   final ValueChanged<UserProfile> onChangeRole;
   final void Function(UserProfile, AccountStatus) onChangeStatus;
+  final ValueChanged<UserProfile> onResetPassword;
 
   @override
   Widget build(BuildContext context) => DecoratedBox(
@@ -357,6 +406,7 @@ class _UserTable extends StatelessWidget {
                   onEnrol: onEnrol,
                   onChangeRole: onChangeRole,
                   onChangeStatus: onChangeStatus,
+                  onResetPassword: onResetPassword,
                 );
                 if (constraints.maxWidth < 620) {
                   return Column(
@@ -445,6 +495,7 @@ class _Actions extends StatelessWidget {
     required this.onEnrol,
     required this.onChangeRole,
     required this.onChangeStatus,
+    required this.onResetPassword,
   });
 
   final UserProfile user;
@@ -452,6 +503,7 @@ class _Actions extends StatelessWidget {
   final ValueChanged<UserProfile> onEnrol;
   final ValueChanged<UserProfile> onChangeRole;
   final void Function(UserProfile, AccountStatus) onChangeStatus;
+  final ValueChanged<UserProfile> onResetPassword;
 
   @override
   Widget build(BuildContext context) => Wrap(
@@ -466,6 +518,11 @@ class _Actions extends StatelessWidget {
         tooltip: 'Change role',
         onPressed: () => onChangeRole(user),
         icon: const Icon(Icons.badge_outlined, size: 20),
+      ),
+      IconButton(
+        tooltip: 'Reset password',
+        onPressed: () => onResetPassword(user),
+        icon: const Icon(Icons.lock_reset_outlined, size: 20),
       ),
       // Reversible measures first, and the irreversible one last.
       PopupMenuButton<AccountStatus>(
@@ -625,47 +682,55 @@ class _AddUserDialogState extends State<_AddUserDialog> {
 }
 
 /// Shows the generated password once. It is not recoverable afterwards.
+/// The sign-in details to pass to somebody, shown once.
+///
+/// Two ways in, because they are used differently. The link is what most
+/// people will use — it opens straight onto "set your password" and needs
+/// nothing typed — and the temporary password is for the person on the
+/// telephone who cannot reach their email at all.
+///
+/// Both are emailed as well, so the account holder has them even if whoever
+/// created the account passes nothing on.
 class _TemporaryPasswordDialog extends StatelessWidget {
   const _TemporaryPasswordDialog({
-    required this.email,
-    required this.password,
+    required this.credentials,
+    this.title = 'Account created',
   });
 
-  final String email;
-  final String password;
+  final IssuedCredentials credentials;
+  final String title;
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Account created'),
+    title: Text(title),
     content: SizedBox(
-      width: 420,
+      width: 460,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Share these details with $email.'),
-          const SizedBox(height: WEAInsets.md),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(WEAInsets.md),
-            decoration: BoxDecoration(
-              color: WEAColors.surfaceMuted,
-              border: Border.all(color: WEAColors.border),
-              borderRadius: BorderRadius.circular(WEAInsets.smallRadius),
-            ),
-            child: SelectableText(
-              password,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontFamily: 'monospace',
-                letterSpacing: 1.5,
-              ),
-            ),
-          ),
-          const SizedBox(height: WEAInsets.sm),
           Text(
-            'This password is shown only once and must be changed at first '
-            'sign-in.',
-            style: Theme.of(context).textTheme.bodySmall,
+            'Sent to ${credentials.email}. You can also pass these on '
+            'yourself.',
+          ),
+          if (credentials.hasLink) ...[
+            const SizedBox(height: WEAInsets.md),
+            _CopyableValue(
+              label: 'SET-PASSWORD LINK',
+              value: credentials.setPasswordUrl,
+              monospace: false,
+              hint: credentials.expiresAt == null
+                  ? 'Works once, and expires an hour after it was issued.'
+                  : 'Works once, and expires at '
+                        '${_clock(credentials.expiresAt!)}.',
+            ),
+          ],
+          const SizedBox(height: WEAInsets.md),
+          _CopyableValue(
+            label: 'TEMPORARY PASSWORD',
+            value: credentials.temporaryPassword,
+            monospace: true,
+            hint: 'Shown only once. Must be changed at first sign-in.',
           ),
         ],
       ),
@@ -677,6 +742,101 @@ class _TemporaryPasswordDialog extends StatelessWidget {
       ),
     ],
   );
+}
+
+/// A time as an operator would read it off a clock.
+String _clock(DateTime when) {
+  final local = when.toLocal();
+  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$hour:$minute ${local.hour < 12 ? 'am' : 'pm'}';
+}
+
+/// One value to hand over, with a button that copies it.
+///
+/// Selectable as well as copyable: a long link is awkward to select by hand,
+/// and a password read off the screen has to be readable rather than merely
+/// present.
+class _CopyableValue extends StatefulWidget {
+  const _CopyableValue({
+    required this.label,
+    required this.value,
+    required this.hint,
+    required this.monospace,
+  });
+
+  final String label;
+  final String value;
+  final String hint;
+  final bool monospace;
+
+  @override
+  State<_CopyableValue> createState() => _CopyableValueState();
+}
+
+class _CopyableValueState extends State<_CopyableValue> {
+  bool _copied = false;
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.value));
+    if (!mounted) return;
+    setState(() => _copied = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          widget.label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: WEAColors.mutedText,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(WEAInsets.sm),
+          decoration: BoxDecoration(
+            color: WEAColors.surfaceMuted,
+            border: Border.all(color: WEAColors.border),
+            borderRadius: BorderRadius.circular(WEAInsets.smallRadius),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: SelectableText(
+                  widget.value,
+                  style: widget.monospace
+                      ? theme.textTheme.titleMedium?.copyWith(
+                          fontFamily: 'monospace',
+                          letterSpacing: 1.4,
+                        )
+                      : theme.textTheme.bodySmall,
+                ),
+              ),
+              const SizedBox(width: WEAInsets.xs),
+              IconButton(
+                onPressed: _copy,
+                tooltip: _copied ? 'Copied' : 'Copy',
+                icon: Icon(
+                  _copied ? Icons.check : Icons.copy_outlined,
+                  size: 18,
+                  color: _copied ? WEAColors.accent : null,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(widget.hint, style: theme.textTheme.bodySmall),
+      ],
+    );
+  }
 }
 
 class _RoleDialog extends StatefulWidget {

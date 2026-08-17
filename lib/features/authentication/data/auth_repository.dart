@@ -3,6 +3,40 @@ import '../domain/programme_enrolment.dart';
 import '../domain/user_profile.dart';
 import '../domain/user_role.dart';
 
+/// The sign-in details the office can pass to somebody.
+///
+/// Two things, because they are used differently: the temporary password is
+/// read out over a telephone, and the link is pasted into a message. Both are
+/// emailed as well, so the account holder has them even if the office forgets
+/// to pass anything on.
+///
+/// The link works once and expires an hour after it was issued. That is the
+/// point of it — a link forwarded on, or left sitting in an inbox, stops being
+/// a way into somebody's account.
+class IssuedCredentials {
+  const IssuedCredentials({
+    required this.email,
+    required this.temporaryPassword,
+    this.setPasswordUrl = '',
+    this.expiresAt,
+  });
+
+  final String email;
+  final String temporaryPassword;
+  final String setPasswordUrl;
+  final DateTime? expiresAt;
+
+  bool get hasLink => setPasswordUrl.isNotEmpty;
+
+  factory IssuedCredentials.fromMap(Map<String, dynamic> map, String email) =>
+      IssuedCredentials(
+        email: email,
+        temporaryPassword: '${map['temporary_password'] ?? ''}',
+        setPasswordUrl: '${map['set_password_url'] ?? ''}',
+        expiresAt: DateTime.tryParse('${map['set_password_expires_at'] ?? ''}'),
+      );
+}
+
 /// A sign-in provider this deployment is configured for.
 ///
 /// The client id comes from the API rather than being compiled in, so a
@@ -98,14 +132,21 @@ abstract interface class AuthRepository {
 
   Future<List<UserProfile>> listUsers();
 
-  /// Creates an account on a user's behalf and returns the one-time password
-  /// to hand over. The account is flagged [UserProfile.mustChangePassword].
-  Future<({UserProfile profile, String temporaryPassword})> adminCreateUser({
+  /// Creates an account on a user's behalf and returns the details to hand
+  /// over. The account is flagged [UserProfile.mustChangePassword].
+  Future<({UserProfile profile, IssuedCredentials credentials})> adminCreateUser({
     required String email,
     required UserRole role,
     String firstName,
     String lastName,
   });
+
+  /// Resets somebody's password for them, for the person who cannot reach
+  /// their email or who is on the telephone now.
+  ///
+  /// Every existing session is dropped, so a stolen one cannot outlive the
+  /// reset, and the account must choose a new password before doing anything.
+  Future<IssuedCredentials> adminResetPassword(String userId, String email);
 
   Future<void> adminDeleteUser(String userId);
 

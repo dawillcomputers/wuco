@@ -285,7 +285,7 @@ class CloudflareAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<({UserProfile profile, String temporaryPassword})> adminCreateUser({
+  Future<({UserProfile profile, IssuedCredentials credentials})> adminCreateUser({
     required String email,
     required UserRole role,
     String firstName = '',
@@ -303,9 +303,16 @@ class CloudflareAuthRepository implements AuthRepository {
     );
     return (
       profile: _profile(body),
-      temporaryPassword: body['temporary_password'] as String? ?? '',
+      credentials: IssuedCredentials.fromMap(body, email.trim()),
     );
   }
+
+  @override
+  Future<IssuedCredentials> adminResetPassword(String userId, String email) async =>
+      IssuedCredentials.fromMap(
+        await _send('POST', '/api/admin/users/$userId/reset-password'),
+        email,
+      );
 
   @override
   Future<void> adminDeleteUser(String userId) =>

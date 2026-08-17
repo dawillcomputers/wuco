@@ -270,11 +270,18 @@ function build(
           ['Email', context.to.email],
           ['Temporary password', data.temporary_password],
         ],
-        action: { label: 'SIGN IN', url: `${site}/login` },
+        // The link goes straight to choosing a password, so nothing has to be
+        // typed. The temporary password stays above it for anyone who follows
+        // the link after it has expired, or who signs in on another device.
+        action: data.url
+          ? { label: 'SET YOUR PASSWORD', url: String(data.url) }
+          : { label: 'SIGN IN', url: `${site}/login` },
         outro:
           'You will be asked to choose your own password the first time you '
-          + 'sign in, and this temporary one stops working at that point. If '
-          + 'you did not register with WEA, please tell the academy office.',
+          + 'sign in, and this temporary one stops working at that point. The '
+          + 'link above can be used once and expires in an hour; after that, '
+          + 'sign in with the password above instead. If you did not register '
+          + 'with WEA, please tell the academy office.',
       };
 
     case 'password_reset':
@@ -305,10 +312,14 @@ function build(
           ['Email', context.to.email],
           ['Temporary password', data.temporary_password],
         ],
-        action: { label: 'SIGN IN', url: `${site}/login` },
+        action: data.url
+          ? { label: 'SET YOUR PASSWORD', url: String(data.url) }
+          : { label: 'SIGN IN', url: `${site}/login` },
         outro:
-          'If you did not ask for this, tell the academy office at once — '
-          + 'somebody has requested a reset on your account.',
+          'The link above can be used once and expires in an hour; after that, '
+          + 'sign in with the temporary password instead. If you did not ask '
+          + 'for this, tell the academy office at once — somebody has '
+          + 'requested a reset on your account.',
       };
 
     case 'event_registration_received':

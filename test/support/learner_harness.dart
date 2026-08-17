@@ -116,12 +116,16 @@ class FakeAuthRepository implements AuthRepository {
   Future<List<UserProfile>> listUsers() => _unsupported();
 
   @override
-  Future<({UserProfile profile, String temporaryPassword})> adminCreateUser({
+  Future<({UserProfile profile, IssuedCredentials credentials})> adminCreateUser({
     required String email,
     required UserRole role,
     String firstName = '',
     String lastName = '',
   }) => _unsupported();
+
+  @override
+  Future<IssuedCredentials> adminResetPassword(String userId, String email) =>
+      _unsupported();
 
   @override
   Future<void> adminDeleteUser(String userId) => _unsupported();

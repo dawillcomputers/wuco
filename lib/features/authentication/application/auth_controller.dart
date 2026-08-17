@@ -240,7 +240,7 @@ class AuthController extends Notifier<AuthState> {
 
   Future<List<UserProfile>> listUsers() => _repository.listUsers();
 
-  Future<({UserProfile profile, String temporaryPassword})> createUser({
+  Future<({UserProfile profile, IssuedCredentials credentials})> createUser({
     required String email,
     required UserRole role,
     String firstName = '',
@@ -251,6 +251,10 @@ class AuthController extends Notifier<AuthState> {
     firstName: firstName,
     lastName: lastName,
   );
+
+  /// Resets somebody's password for them and returns the details to pass on.
+  Future<IssuedCredentials> resetUserPassword(String userId, String email) =>
+      _repository.adminResetPassword(userId, email);
 
   Future<void> deleteUser(String userId) => _repository.adminDeleteUser(userId);
 

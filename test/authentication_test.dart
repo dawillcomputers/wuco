@@ -222,10 +222,10 @@ void main() {
         email: 'lecturer@example.com',
         role: UserRole.lecturer,
       );
-      expect(created.temporaryPassword.length, greaterThanOrEqualTo(12));
+      expect(created.credentials.temporaryPassword.length, greaterThanOrEqualTo(12));
       expect(created.profile.mustChangePassword, isTrue);
       expect(created.profile.role, UserRole.lecturer);
-      expect(PasswordPolicy.isValid(created.temporaryPassword), isTrue);
+      expect(PasswordPolicy.isValid(created.credentials.temporaryPassword), isTrue);
     });
 
     test('deletes a user but never the signed-in account', () async {
