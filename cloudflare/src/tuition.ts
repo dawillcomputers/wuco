@@ -44,7 +44,6 @@ export async function beginTuitionPayment(
   secrets: PaymentSecrets,
   returnUrl: string,
   methodKey?: string,
-  chosenCurrency = '',
   country = '',
 ): Promise<TuitionResult> {
   const already = str(registration.status);
@@ -62,7 +61,6 @@ export async function beginTuitionPayment(
     .first<Record<string, unknown>>();
   const charge = resolveCharge(
     pricesFor(programme ?? {}, 'tuition_amount', 'tuition_currency'),
-    chosenCurrency,
     country,
   );
   if (!charge) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };

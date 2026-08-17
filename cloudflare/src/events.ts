@@ -528,7 +528,6 @@ export async function saveEventRegistration(
   const initial = tier
     ? resolveCharge(
         tier.prices,
-        '',
         requestCountry || str(body.country) || str(existing?.country),
       )
     : null;
@@ -795,7 +794,6 @@ export async function beginEventPayment(
   secrets: PaymentSecrets,
   returnUrl: string,
   methodKey?: string,
-  chosenCurrency = '',
   country = '',
   chosenMode = '',
 ): Promise<EventResult> {
@@ -830,7 +828,7 @@ export async function beginEventPayment(
   const tier = tierFor(tiers, mode);
   if (!tier) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
 
-  const charge = resolveCharge(tier.prices, chosenCurrency, country);
+  const charge = resolveCharge(tier.prices, country);
   if (!charge) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
   const amount = charge.amount;
 

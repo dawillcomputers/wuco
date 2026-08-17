@@ -25,6 +25,48 @@ const HOME_CURRENCY = 'NGN';
 const HOME_COUNTRY = 'NG';
 
 /**
+ * The pound, for the countries that use it.
+ *
+ * The Crown Dependencies are included because their own notes are pegged to
+ * sterling and a card issued there settles in it.
+ */
+const STERLING_COUNTRIES = new Set(['GB', 'GG', 'JE', 'IM']);
+
+/**
+ * Europe, for pricing purposes.
+ *
+ * Wider than the eurozone on purpose. A visitor from Norway or Switzerland is
+ * far better served by a euro price than by a dollar one — it is the currency
+ * they see every day and can compare — and the academy would otherwise have to
+ * price in a dozen more currencies to reach the same people.
+ */
+const EURO_COUNTRIES = new Set([
+  // Eurozone
+  'AT', 'BE', 'HR', 'CY', 'EE', 'FI', 'FR', 'DE', 'GR', 'IE', 'IT', 'LV',
+  'LT', 'LU', 'MT', 'NL', 'PT', 'SK', 'SI', 'ES',
+  // The rest of Europe, priced in euro rather than dollars.
+  'AL', 'AD', 'AM', 'AZ', 'BY', 'BA', 'BG', 'CZ', 'DK', 'FO', 'GE', 'GI',
+  'HU', 'IS', 'XK', 'LI', 'MD', 'MC', 'ME', 'MK', 'NO', 'PL', 'RO', 'RS',
+  'SE', 'CH', 'SM', 'UA', 'VA',
+]);
+
+/**
+ * The currency somebody in this country should be charged in.
+ *
+ * Naira at home, sterling in the United Kingdom, euro across Europe, dollars
+ * everywhere else. This is not a preference the payer expresses — it follows
+ * from where they are, so that the price shown, the price agreed and the price
+ * charged are the same number arrived at the same way.
+ */
+export function currencyForCountry(country: string): string {
+  const code = str(country).toUpperCase();
+  if (code === HOME_COUNTRY) return HOME_CURRENCY;
+  if (STERLING_COUNTRIES.has(code)) return 'GBP';
+  if (EURO_COUNTRIES.has(code)) return 'EUR';
+  return INTERNATIONAL_CURRENCY;
+}
+
+/**
  * Every price set for a row, base price included.
  *
  * The base `amount`/`currency` columns are folded in so nothing published
@@ -52,23 +94,27 @@ export function pricesFor(
 }
 
 /**
- * The currency to show this visitor first.
+ * The currency this visitor will be charged in.
  *
- * Naira in Nigeria, dollars outside it — falling back to whatever the academy
- * did set, because showing a price in a currency nobody priced would be worse
- * than showing an unexpected one.
+ * Decided by where they are — naira at home, sterling in the United Kingdom,
+ * euro across Europe, dollars elsewhere — and not offered as a choice. A payer
+ * picking their own currency was a way to pay the cheapest of four numbers
+ * that were never meant to be alternatives to each other, and it made the
+ * price on the page differ from the price on the receipt.
+ *
+ * Falls back to what the academy actually priced: a currency nobody set is not
+ * one WEA can charge, so an unexpected currency beats no price at all.
  */
 export function suggestedCurrency(prices: Price[], country: string): string {
   if (prices.length === 0) return HOME_CURRENCY;
 
-  const wanted =
-    str(country).toUpperCase() === HOME_COUNTRY
-      ? HOME_CURRENCY
-      : INTERNATIONAL_CURRENCY;
-
   const available = prices.map((price) => price.currency);
+  const wanted = currencyForCountry(country);
   if (available.includes(wanted)) return wanted;
-  // Outside Nigeria with no dollar price, naira is better than nothing.
+
+  // Nothing priced in their own currency. Dollars are the closest thing to a
+  // universal fallback; naira is better than refusing to quote at all.
+  if (available.includes(INTERNATIONAL_CURRENCY)) return INTERNATIONAL_CURRENCY;
   if (available.includes(HOME_CURRENCY)) return HOME_CURRENCY;
   return available[0];
 }
@@ -91,20 +137,19 @@ export function priceIn(prices: Price[], currency: string): Price | null {
 /**
  * Resolves what a payer will actually be charged.
  *
- * The chosen currency has to be one of the set prices; anything else falls
- * back to the suggestion rather than being honoured, so a request cannot name
- * a currency — or an amount — the academy did not choose.
+ * **The country decides, and nothing in the request can change it.** The
+ * currency is not a preference: a payer offered the choice was really being
+ * offered four prices that were never meant as alternatives to one another,
+ * and could simply take the cheapest. It also let the page quote one figure
+ * and the receipt show a different one.
+ *
+ * So this takes no chosen currency at all. What a visitor in Lagos is shown,
+ * agrees to and is charged is the naira price, arrived at the same way all
+ * three times.
  */
-export function resolveCharge(
-  prices: Price[],
-  chosenCurrency: string,
-  country: string,
-): Price | null {
+export function resolveCharge(prices: Price[], country: string): Price | null {
   if (prices.length === 0) return null;
-  return (
-    priceIn(prices, chosenCurrency) ??
-    priceIn(prices, suggestedCurrency(prices, country))
-  );
+  return priceIn(prices, suggestedCurrency(prices, country));
 }
 
 /** Prices as the client should render them. */

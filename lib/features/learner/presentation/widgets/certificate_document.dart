@@ -50,7 +50,7 @@ class CertificateDocument extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const WEABrandLockup(height: 82),
+                  const WEABrandLockup(height: 82, linkToHome: false),
                   const SizedBox(height: 10),
                   Text(
                     'EMPOWERING AFRICA’S LEADERS · SHAPING GLOBAL EXCELLENCE',

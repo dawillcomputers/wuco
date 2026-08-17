@@ -20,6 +20,7 @@ import {
   feeTierFrom,
   implicitTier,
   offeredModes,
+  currencyForCountry,
   parsePrices,
   pricesFor,
   resolveCharge,
@@ -176,17 +177,77 @@ async function main() {
   );
 
   check(
-    'a chosen currency is honoured',
-    resolveCharge(priced, 'USD', 'NG')?.amount === 150,
+    'Nigeria is charged in naira',
+    resolveCharge(priced, 'NG')?.currency === 'NGN',
   );
   check(
-    'a currency WEA never priced falls back rather than converting',
-    resolveCharge(priced, 'EUR', 'NG')?.currency === 'NGN',
-    'inventing an exchange rate would charge a number nobody chose',
+    'elsewhere is charged in dollars',
+    resolveCharge(priced, 'US')?.amount === 150,
   );
   check(
     'an unpriced item cannot be charged at all',
-    resolveCharge([], 'USD', 'NG') === null,
+    resolveCharge([], 'NG') === null,
+  );
+
+  // --- The country decides the currency ---------------------------------------
+
+  section('Where you are decides what you pay in');
+
+  check('Nigeria pays in naira', currencyForCountry('NG') === 'NGN');
+  check('the United Kingdom pays in pounds', currencyForCountry('GB') === 'GBP');
+  check(
+    'the Channel Islands and the Isle of Man do too',
+    currencyForCountry('JE') === 'GBP' &&
+      currencyForCountry('GG') === 'GBP' &&
+      currencyForCountry('IM') === 'GBP',
+  );
+  for (const country of ['FR', 'DE', 'IE', 'ES', 'IT', 'NL']) {
+    check(`${country} pays in euro`, currencyForCountry(country) === 'EUR');
+  }
+  check(
+    'non-eurozone Europe pays in euro too',
+    currencyForCountry('NO') === 'EUR' &&
+      currencyForCountry('CH') === 'EUR' &&
+      currencyForCountry('PL') === 'EUR',
+    'a euro price is one a European can read; a dollar one is not',
+  );
+  for (const country of ['US', 'CA', 'KE', 'GH', 'ZA', 'AE', 'IN']) {
+    check(`${country} pays in dollars`, currencyForCountry(country) === 'USD');
+  }
+  check(
+    'an unknown country pays in dollars',
+    currencyForCountry('') === 'USD' && currencyForCountry('ZZ') === 'USD',
+  );
+
+  const fourWays = pricesFor(
+    { prices: '{"NGN": 250000, "USD": 150, "GBP": 120, "EUR": 140}' },
+    '',
+    '',
+  );
+  check(
+    'a British payer is charged the pound price',
+    resolveCharge(fourWays, 'GB')?.amount === 120,
+  );
+  check(
+    'a German payer is charged the euro price',
+    resolveCharge(fourWays, 'DE')?.amount === 140,
+  );
+  check(
+    'a Nigerian payer is charged the naira price',
+    resolveCharge(fourWays, 'NG')?.amount === 250000,
+  );
+  check(
+    'and nothing in the request can change any of that',
+    // `resolveCharge` takes no chosen currency at all: the only way to reach a
+    // different price is to be somewhere different.
+    resolveCharge(fourWays, 'GB')?.currency === 'GBP',
+  );
+
+  const nairaOnly = pricesFor({ prices: '{"NGN": 250000}' }, '', '');
+  check(
+    'a payer whose currency was never priced still gets a price',
+    resolveCharge(nairaOnly, 'GB')?.currency === 'NGN',
+    'refusing to quote would be worse than quoting in naira',
   );
 
   // --- Prices survive being edited ------------------------------------------

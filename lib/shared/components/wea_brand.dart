@@ -120,15 +120,19 @@ class WEABrandLockup extends StatelessWidget {
     super.key,
     this.height = 120,
     this.onDark = false,
-    this.linkToHome = false,
+    this.linkToHome = true,
   });
 
   final double height;
   final bool onDark;
 
-  /// Whether tapping returns to the home page. Off by default, because this
-  /// lockup is also the mark on a certificate and in a footer, where it is not
-  /// a control — headers opt in.
+  /// Whether tapping returns to the home page.
+  ///
+  /// On by default, because a logo is universally taken to be the way home and
+  /// a visitor who clicks one and gets nothing concludes the site is broken.
+  /// Opted out only where the mark is a statement of origin rather than a
+  /// control: on a certificate, on a credential card, and on the loading
+  /// screen — where there is also no router to navigate with yet.
   final bool linkToHome;
 
   @override

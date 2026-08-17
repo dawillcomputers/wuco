@@ -17,7 +17,7 @@ class WEAAuthLoadingScreen extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const WEABrandLockup(height: 132),
+          const WEABrandLockup(height: 132, linkToHome: false),
           const SizedBox(height: 40),
           const SizedBox(
             width: 26,

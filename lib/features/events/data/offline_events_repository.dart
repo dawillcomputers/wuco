@@ -190,7 +190,6 @@ class OfflineEventsRepository
   @override
   Future<EventPaymentOptions> paymentMethods(
     String slug, {
-    String? currency,
     String? attendanceMode,
   }) async =>
       // Nothing is configured offline, so nothing is offered. Listing methods
@@ -201,7 +200,6 @@ class OfflineEventsRepository
   Future<EventPaymentIntent> beginPayment(
     String reference, {
     String? methodKey,
-    String? currency,
     String? attendanceMode,
   }) async {
     final registration = _registration(reference);

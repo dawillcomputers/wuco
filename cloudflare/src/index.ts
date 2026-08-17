@@ -1372,7 +1372,8 @@ export default {
           paymentSecrets(env),
           `${site.replace(/\/$/, '')}/events/registration/${registration.reference}`,
           str(paymentBody.payment_method),
-          str(paymentBody.currency),
+          // The currency is not the payer's to choose: it follows from where
+          // they are, so the price quoted and the price charged agree.
           countryOf(request),
           str(paymentBody.attendance_mode),
         );
@@ -1786,7 +1787,6 @@ export default {
           paymentSecrets(env),
           `${site.replace(/\/$/, '')}/register/${registration.programme_id}`,
           str(tuitionBody.payment_method),
-          str(tuitionBody.currency),
           countryOf(request),
         );
         if (!result.ok) {

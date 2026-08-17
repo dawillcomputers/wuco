@@ -46,7 +46,7 @@ class CertificateCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                WEABrandLockup(height: 42, onDark: issued),
+                WEABrandLockup(height: 42, onDark: issued, linkToHome: false),
                 const SizedBox(height: WEAInsets.md),
                 Text(
                   issued ? 'EXECUTIVE CERTIFICATE' : 'AWAITING ISSUE',

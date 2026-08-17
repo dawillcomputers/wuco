@@ -150,7 +150,6 @@ abstract interface class EventsRepository {
   /// The payment methods this event can actually take. Decided by the server.
   Future<EventPaymentOptions> paymentMethods(
     String slug, {
-    String? currency,
     String? attendanceMode,
   });
 
@@ -158,7 +157,6 @@ abstract interface class EventsRepository {
   Future<EventPaymentIntent> beginPayment(
     String reference, {
     String? methodKey,
-    String? currency,
     String? attendanceMode,
   });
 

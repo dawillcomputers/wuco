@@ -519,6 +519,9 @@ export class FlutterwavePaymentService {
    * Only methods that carry no sensitive data reach this — card is a redirect,
    * so no card number is ever sent from WEA.
    */
+  /** Set when the last payment-method attempt failed, for the error upstream. */
+  private lastMethodError = '';
+
   private async createPaymentMethod(
     customerId: string,
     method: PaymentMethodOption,
@@ -541,8 +544,14 @@ export class FlutterwavePaymentService {
         result.status,
         result.message,
       );
+      // Kept so the reason reaches whoever is looking at the failure. The
+      // order path already reports what the processor said; this one used to
+      // swallow it, which turned a fixable configuration problem into "try
+      // again shortly".
+      this.lastMethodError = `${result.status}: ${result.message}`;
       return null;
     }
+    this.lastMethodError = '';
     return str(result.data.id) || null;
   }
 
@@ -578,7 +587,9 @@ export class FlutterwavePaymentService {
       return {
         ok: false,
         code: 'PAYMENT_INITIALISATION_FAILED',
-        message: `The processor did not accept the ${method.key} payment method.`,
+        message:
+          `The processor did not accept the ${method.key} payment method` +
+          `${this.lastMethodError ? ` (${this.lastMethodError})` : ''}.`,
       };
     }
 

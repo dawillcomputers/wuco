@@ -67,10 +67,6 @@ class _EventRegistrationScreenState
   /// accept one the event does not offer.
   String? _method;
 
-  /// The currency the payer chose to be charged in. Only ever one of the
-  /// prices the academy set — WEA does not convert.
-  String? _currency;
-
   /// How they are attending, on an event that offers both. Which *rate* that
   /// earns is not chosen here or anywhere else in the client: the date decides
   /// it, and the server is the only thing entitled to that opinion.
@@ -189,7 +185,6 @@ class _EventRegistrationScreenState
           .beginPayment(
             registration.reference,
             methodKey: _method,
-            currency: _currency,
             attendanceMode: _attendance?.wire,
           );
       if (!mounted) return;
@@ -571,7 +566,6 @@ class _EventRegistrationScreenState
     final payment = ref.watch(
       eventPaymentMethodsProvider((
         slug: widget.slug,
-        currency: _currency,
         attendanceMode: _attendance?.wire,
       )),
     );
@@ -701,21 +695,6 @@ class _EventRegistrationScreenState
                       _attendance = mode;
                       // The rate, and so the currencies it is sold in, both
                       // change with the mode; neither older choice survives.
-                      _method = null;
-                    }),
-                  ),
-                  const SizedBox(height: WEAInsets.lg),
-                ],
-                // Shown only where there is a genuine choice: one price
-                // needs no picker.
-                if (options.hasChoice) ...[
-                  _CurrencyChoice(
-                    options: options,
-                    selected: _currency ?? options.currency,
-                    onSelected: (currency) => setState(() {
-                      _currency = currency;
-                      // A method that cannot settle the new currency must
-                      // not stay selected.
                       _method = null;
                     }),
                   ),
@@ -872,21 +851,16 @@ class _CustomField extends StatelessWidget {
   }
 }
 
-/// Lets the payer choose which of the academy's prices to be charged.
-///
-/// Naira in Nigeria and dollars elsewhere is only the opening suggestion; a
-/// Nigerian paying from a dollar account, or the reverse, chooses for
-/// themselves. Every option is a price somebody at the academy set — nothing
-/// here is converted.
 /// Lets the registrant say whether they are coming to the room or watching.
 ///
-/// Only ever shown on a hybrid event. Each option carries its own price,
-/// because the difference between attending in person and online is usually
-/// the reason somebody is choosing at all — and making them switch back and
-/// forth to compare is a worse form of the same question.
+/// Only ever shown on a hybrid event, and it is the one thing about the price
+/// the payer does decide. The currency is not offered as a choice — it follows
+/// from where they are — but how they attend is a genuine difference in what
+/// they are buying.
 ///
-/// This picks the *mode*, never the rate. Whether that mode earns the early
-/// price or the standard one follows from the date, decided server-side.
+/// Each option carries its own price, because that difference is usually the
+/// reason somebody is choosing at all, and making them switch back and forth
+/// to compare would be a worse form of the same question.
 class _AttendanceChoice extends StatelessWidget {
   const _AttendanceChoice({
     required this.options,
@@ -918,12 +892,7 @@ class _AttendanceChoice extends StatelessWidget {
             child: _AttendanceOption(
               mode: mode,
               selected: mode == selected,
-              // The price for this way of attending, in the currency being
-              // shown, so both options can be compared at a glance.
-              price: options
-                  .tierFor(mode)
-                  ?.priceIn(options.currency)
-                  ?.label,
+              price: options.tierFor(mode)?.priceIn(options.currency)?.label,
               onTap: () => onSelected(mode),
             ),
           ),
@@ -986,48 +955,6 @@ class _AttendanceOption extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _CurrencyChoice extends StatelessWidget {
-  const _CurrencyChoice({
-    required this.options,
-    required this.selected,
-    required this.onSelected,
-  });
-
-  final EventPaymentOptions options;
-  final String selected;
-  final ValueChanged<String> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'PAY IN',
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: WEAColors.mutedText,
-            letterSpacing: 1.3,
-          ),
-        ),
-        const SizedBox(height: WEAInsets.sm),
-        Wrap(
-          spacing: WEAInsets.xs,
-          runSpacing: WEAInsets.xs,
-          children: [
-            for (final price in options.prices)
-              ChoiceChip(
-                selected: price.currency == selected,
-                onSelected: (_) => onSelected(price.currency),
-                label: Text('${price.currency} · ${price.label}'),
-              ),
-          ],
-        ),
-      ],
     );
   }
 }
