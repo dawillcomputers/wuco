@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
@@ -162,6 +163,14 @@ class _MyRegistrations extends ConsumerWidget {
                       row.registration.status,
                     ),
                     const SizedBox(width: WEAInsets.sm),
+                    // A place that is not paid for is not held, so the action
+                    // that settles it comes first and is the emphasised one.
+                    // Where nothing is owed there is nothing to press.
+                    if (!row.registration.paymentStatus.settled)
+                      Padding(
+                        padding: const EdgeInsets.only(right: WEAInsets.xs),
+                        child: _PayNowButton(reference: row.registration.reference),
+                      ),
                     WEAOutlinedButton(
                       label: 'OPEN',
                       compact: true,
@@ -178,6 +187,62 @@ class _MyRegistrations extends ConsumerWidget {
       },
     );
   }
+}
+
+/// Settles an unpaid registration without opening it first.
+///
+/// The commonest thing somebody returns to this page to do is pay, so it is
+/// one press from the list rather than two. It starts the payment on the API
+/// and follows the checkout the API hands back — the amount and the currency
+/// are decided there, exactly as they are everywhere else.
+class _PayNowButton extends ConsumerStatefulWidget {
+  const _PayNowButton({required this.reference});
+
+  final String reference;
+
+  @override
+  ConsumerState<_PayNowButton> createState() => _PayNowButtonState();
+}
+
+class _PayNowButtonState extends ConsumerState<_PayNowButton> {
+  bool _busy = false;
+
+  Future<void> _pay() async {
+    setState(() => _busy = true);
+    try {
+      final intent = await ref
+          .read(eventActionsProvider)
+          .beginPayment(widget.reference);
+      if (!mounted) return;
+      setState(() => _busy = false);
+
+      if (intent.hasCheckout) {
+        await launchUrl(
+          Uri.parse(intent.checkoutUrl!),
+          mode: LaunchMode.platformDefault,
+          webOnlyWindowName: '_self',
+        );
+        return;
+      }
+      // No checkout to open: the registration page explains what to do
+      // instead, rather than this button trying to.
+      if (mounted) {
+        context.go('/events/registration/${widget.reference}');
+      }
+    } on EventFailure catch (failure) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(failure.message)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => WEAButton(
+    label: _busy ? 'OPENING…' : 'PAY NOW',
+    onPressed: _busy ? null : _pay,
+  );
 }
 
 /// Splits the calendar into what is ahead and what has already happened.

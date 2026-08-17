@@ -261,8 +261,11 @@ class _EventDashboardScreenState extends ConsumerState<EventDashboardScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        for (final item in data.agenda)
-                          EventAgendaRow(item: item),
+                        for (final (index, item) in data.agenda.indexed)
+                          EventAgendaRow(
+                            item: item,
+                            isLast: index == data.agenda.length - 1,
+                          ),
                       ],
                     ),
                   ),

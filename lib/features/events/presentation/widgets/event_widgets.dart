@@ -235,39 +235,92 @@ class EventProse extends StatelessWidget {
   );
 }
 
-/// One line of the published agenda.
+/// One line of the published agenda, drawn as a point on a timeline.
+///
+/// A day's programme is a sequence, and the shape should say so: a marked
+/// point for each item, joined by a rule that runs between them. Times sit in
+/// their own column so the eye can run down them without reading the titles,
+/// which is how somebody actually uses an agenda — finding the hour they care
+/// about first, and the session second.
+///
+/// [isLast] omits the connecting rule, so the line ends at the final item
+/// rather than trailing into white space.
 class EventAgendaRow extends StatelessWidget {
-  const EventAgendaRow({super.key, required this.item});
+  const EventAgendaRow({super.key, required this.item, this.isLast = false});
 
   final EventAgendaItem item;
+  final bool isLast;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: WEAInsets.md),
+    final hasDetail = item.detail.isNotEmpty;
+
+    return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // The hour, right-aligned so the column reads as a scale.
           SizedBox(
-            width: 78,
-            child: Text(
-              item.time,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: WEAColors.accentDeep,
+            width: 76,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                item.time,
+                textAlign: TextAlign.right,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: WEAColors.accentDeep,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
             ),
           ),
+          const SizedBox(width: WEAInsets.md),
+
+          // The marker and the rule joining it to the next item.
+          Column(
+            children: [
+              Container(
+                width: 11,
+                height: 11,
+                margin: const EdgeInsets.only(top: 5),
+                decoration: BoxDecoration(
+                  color: WEAColors.card,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: WEAColors.accent, width: 2.5),
+                ),
+              ),
+              if (!isLast)
+                Expanded(
+                  child: Container(width: 1.5, color: WEAColors.border),
+                ),
+            ],
+          ),
+          const SizedBox(width: WEAInsets.md),
+
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(item.title, style: theme.textTheme.titleMedium),
-                if (item.detail.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(item.detail, style: theme.textTheme.bodyMedium),
+            child: Padding(
+              // Space below each item, except the last, which needs none.
+              padding: EdgeInsets.only(bottom: isLast ? 0 : WEAInsets.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    style: theme.textTheme.titleMedium?.copyWith(height: 1.3),
+                  ),
+                  if (hasDetail) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      item.detail,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: WEAColors.mutedText,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ],

@@ -14,7 +14,6 @@ import '../application/events_providers.dart';
 import '../data/events_repository.dart';
 import '../domain/event_models.dart';
 import 'widgets/event_widgets.dart';
-import 'widgets/payment_method_selector.dart';
 
 /// Registering for an event.
 ///
@@ -62,10 +61,6 @@ class _EventRegistrationScreenState
 
   /// Set when completing the registration created a WEA account. Shown once.
   String? _temporaryPassword;
-
-  /// The method the payer chose. Validated again by the API, which will not
-  /// accept one the event does not offer.
-  String? _method;
 
   /// How they are attending, on an event that offers both. Which *rate* that
   /// earns is not chosen here or anywhere else in the client: the date decides
@@ -184,7 +179,6 @@ class _EventRegistrationScreenState
           .read(eventActionsProvider)
           .beginPayment(
             registration.reference,
-            methodKey: _method,
             attendanceMode: _attendance?.wire,
           );
       if (!mounted) return;
@@ -681,33 +675,21 @@ class _EventRegistrationScreenState
               child: LinearProgressIndicator(),
             ),
             error: (_, _) => const SizedBox.shrink(),
-            data: (options) => Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Only a hybrid event has anything to ask. Each option shows
-                // its own price, so the registrant can see what the other way
-                // of attending costs without having to switch to find out.
-                if (options.hasModeChoice) ...[
-                  _AttendanceChoice(
+            // There is nothing to choose here any more. How to pay is asked
+            // on Flutterwave's own checkout — card, transfer, USSD — which is
+            // where the card is entered and where the list is accurate,
+            // because it is the list that account actually supports.
+            //
+            // Only a hybrid event still has a question: which way of attending,
+            // because that changes what is being bought. Each option shows its
+            // own price so nobody has to switch to compare.
+            data: (options) => options.hasModeChoice
+                ? _AttendanceChoice(
                     options: options,
                     selected: _attendance ?? options.mode,
-                    onSelected: (mode) => setState(() {
-                      _attendance = mode;
-                      // The rate, and so the currencies it is sold in, both
-                      // change with the mode; neither older choice survives.
-                      _method = null;
-                    }),
-                  ),
-                  const SizedBox(height: WEAInsets.lg),
-                ],
-                PaymentMethodSelector(
-                  methods: options.methods,
-                  selected: _method,
-                  environment: options.environment,
-                  onSelected: (key) => setState(() => _method = key),
-                ),
-              ],
-            ),
+                    onSelected: (mode) => setState(() => _attendance = mode),
+                  )
+                : const SizedBox.shrink(),
           ),
         ],
         const SizedBox(height: WEAInsets.xl),

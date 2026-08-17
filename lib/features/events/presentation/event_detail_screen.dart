@@ -314,7 +314,11 @@ class _EventNarrative extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final item in detail.agenda) EventAgendaRow(item: item),
+                for (final (index, item) in detail.agenda.indexed)
+                  EventAgendaRow(
+                    item: item,
+                    isLast: index == detail.agenda.length - 1,
+                  ),
               ],
             ),
           ),
