@@ -11,7 +11,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply WEA_DB --remote",
     "verify:flutterwave": "esbuild scripts/verify-flutterwave.ts --bundle --platform=node --format=esm --outfile=.wrangler/tmp/verify-flw.mjs && node .wrangler/tmp/verify-flw.mjs",
     "verify:youtube": "esbuild scripts/verify-youtube.ts --bundle --platform=node --format=esm --outfile=.wrangler/tmp/verify-yt.mjs && node .wrangler/tmp/verify-yt.mjs",
-    "verify": "npm run verify:flutterwave && npm run verify:youtube"
+    "verify:seo": "node ../functions/_lib/site.test.mjs",
+    "verify": "npm run verify:flutterwave && npm run verify:youtube && npm run verify:seo"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260811.1",
