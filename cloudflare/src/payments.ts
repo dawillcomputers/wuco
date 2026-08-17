@@ -357,24 +357,29 @@ const manual: PaymentProvider = {
 const PROVIDERS: PaymentProvider[] = [paystack, flutterwave, manual];
 
 /**
- * Which provider handles a configured method.
+ * Which provider takes this payment.
  *
- * A method is only treated as a gateway when it says so *and* the deployment
- * holds a key for it. An unconfigured gateway falls back to instructions
- * rather than sending the payer to a checkout that cannot work.
+ * **Flutterwave, whenever Flutterwave is configured.** There is nothing else
+ * to decide: the payer chooses how to pay on Flutterwave's own checkout, so
+ * there is no method for WEA to route on and no reason to ask for one.
+ *
+ * This used to require a method key, back when WEA charged each rail itself
+ * and the key said which. Removing the selector — because the checkout asks
+ * instead — meant nothing named a method any more, and every payment fell
+ * through to MANUAL and answered with "the office will send instructions".
+ * A configured processor is now the only condition.
+ *
+ * The fallbacks below still matter, in order: a deployment with no
+ * Flutterwave key falls back to a legacy gateway row if it names a processor
+ * that *is* configured, and to the academy's own instructions if not — which
+ * is the honest answer when there is no checkout that could work.
  */
 export function providerFor(
   method: PaymentMethodRow | null,
   secrets: PaymentSecrets,
-  methodKey?: string,
+  _methodKey?: string,
 ): PaymentProvider {
-  // A payer who chose a method from the event's own list is paying through
-  // Flutterwave: that list is defined in Flutterwave's vocabulary and is only
-  // populated when Flutterwave is configured. This is the ordinary path now —
-  // an event no longer needs a legacy payment_methods row to take money.
-  if (str(methodKey) !== '' && flutterwave.isConfigured(secrets)) {
-    return flutterwave;
-  }
+  if (flutterwave.isConfigured(secrets)) return flutterwave;
   if (!method || method.kind !== 'GATEWAY') return manual;
   const named = str(method.gateway_provider).toUpperCase();
   const provider = PROVIDERS.find((candidate) => candidate.name === named);
