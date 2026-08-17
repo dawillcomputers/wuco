@@ -187,6 +187,8 @@ export interface Env {
   // account still holds it.
   FLW_SECRET_KEY?: string;
   FLW_SECRET_HASH?: string;
+  /** Public by design: handed to the browser to open the checkout. */
+  FLW_PUBLIC_KEY?: string;
   FLW_ENVIRONMENT?: string;
   FLW_V4_BASE_URL?: string;
   FLW_CLIENT_ID?: string;

@@ -38,6 +38,18 @@
     // The V4 settings below are unused by the payment path and kept only
     // because the account still holds those credentials.
     // ---------------------------------------------------------------------
+    // The v3 public key. Public by design — it is handed to the browser to
+    // open Flutterwave's checkout — so it lives here where it can be reviewed
+    // rather than in `wrangler secret`.
+    //
+    // LIVE KEY. `FLWPUBK-` with no `_TEST` means real cards and real money.
+    // The test equivalent is prefixed `FLWPUBK_TEST-`.
+    //
+    // It cannot take a payment on its own: a public key can start a checkout
+    // but cannot confirm one, and WEA only marks something paid after asking
+    // Flutterwave directly with the secret key.
+    "FLW_PUBLIC_KEY": "FLWPUBK-535cca6298e7fbb4e9841b9c3778cdfd-X",
+
     "FLW_ENVIRONMENT": "PRODUCTION",
     "FLW_V4_BASE_URL": "https://f4bexperience.flutterwave.com",
 
