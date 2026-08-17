@@ -164,6 +164,7 @@ abstract interface class EventsRepository {
   Future<EventPaymentOutcome> verifyPayment(
     String reference, {
     String? paymentReference,
+    String? transactionId,
   });
 
   Future<EventDashboard> dashboard(String reference);

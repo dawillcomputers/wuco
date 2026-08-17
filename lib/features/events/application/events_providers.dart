@@ -208,10 +208,12 @@ class EventActions {
   Future<EventPaymentOutcome> verifyPayment(
     String reference, {
     String? paymentReference,
+    String? transactionId,
   }) async {
     final outcome = await _events.verifyPayment(
       reference,
       paymentReference: paymentReference,
+      transactionId: transactionId,
     );
     unawaitedReport(
       name: outcome.succeeded

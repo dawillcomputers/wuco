@@ -19,16 +19,24 @@
     "SUPERADMIN_EMAIL": "proptgoservices@gmail.com",
 
     // ---------------------------------------------------------------------
-    // PAYMENTS ARE LIVE. Every payment taken through this deployment charges
-    // a real card and moves real money.
+    // PAYMENTS run on Flutterwave v3 Standard — the hosted checkout.
     //
-    // To return to testing, set FLW_ENVIRONMENT to SANDBOX and remove
-    // FLW_V4_BASE_URL — the sandbox host is known and applied automatically.
+    // There is nothing to configure here any more. Whether the academy is
+    // charging real cards is decided by which secret key is set:
     //
-    // Neither of these is a secret, so they live here rather than in
-    // `wrangler secret`: what environment the academy is charging in should be
-    // reviewable in version control, not hidden. The credentials themselves
-    // remain secrets.
+    //   FLWSECK_TEST-…   test account, no money moves
+    //   FLWSECK-…        live account, real cards
+    //
+    // Set it with:  npx wrangler secret put FLW_SECRET_KEY
+    // And the webhook hash from the dashboard:
+    //                npx wrangler secret put FLW_SECRET_HASH
+    //
+    // Deliberately not a var: unlike an environment name, the key is a
+    // credential. The environment is still reviewable — it is legible from the
+    // key's own prefix — without the key itself being in version control.
+    //
+    // The V4 settings below are unused by the payment path and kept only
+    // because the account still holds those credentials.
     // ---------------------------------------------------------------------
     "FLW_ENVIRONMENT": "PRODUCTION",
     "FLW_V4_BASE_URL": "https://f4bexperience.flutterwave.com",

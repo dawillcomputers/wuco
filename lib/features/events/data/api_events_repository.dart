@@ -227,11 +227,18 @@ class ApiEventsRepository
   Future<EventPaymentOutcome> verifyPayment(
     String reference, {
     String? paymentReference,
+    String? transactionId,
   }) async => EventPaymentOutcome.fromMap(
     await _send(
       'POST',
       '/api/events/registrations/$reference/verify',
-      body: {'payment_reference': paymentReference ?? ''},
+      body: {
+        'payment_reference': paymentReference ?? '',
+        // Flutterwave puts this on the return URL. It is what the API
+        // verifies against — a browser saying "it worked" is only a hint that
+        // it is worth asking.
+        'transaction_id': transactionId ?? '',
+      },
       reference: reference,
     ),
   );

@@ -962,6 +962,12 @@ export async function settleEventPayment(
   db: D1Database,
   paymentReference: string,
   secrets: PaymentSecrets,
+  /**
+   * The processor's id for the attempt, from the return redirect or the
+   * webhook. Stored before verifying, so a later attempt to settle the same
+   * payment has it even if the browser never came back.
+   */
+  transactionId = '',
 ): Promise<EventResult> {
   const payment = await db
     .prepare('SELECT * FROM event_payments WHERE provider_reference = ?1')
@@ -974,7 +980,25 @@ export async function settleEventPayment(
     return { ok: true, data: { status: 'PAID', payment_reference: paymentReference } };
   }
 
-  const verification = await verifyPayment(str(payment.provider), paymentReference, secrets);
+  // Whichever id we now hold: the one just handed to us, or the one recorded
+  // by an earlier attempt.
+  const providerTransactionId =
+    str(transactionId) || str(payment.provider_transaction_id);
+  if (str(transactionId) !== '' && str(transactionId) !== str(payment.provider_transaction_id)) {
+    await db
+      .prepare(
+        'UPDATE event_payments SET provider_transaction_id = ?1 WHERE id = ?2',
+      )
+      .bind(str(transactionId), payment.id)
+      .run();
+  }
+
+  const verification = await verifyPayment(
+    str(payment.provider),
+    paymentReference,
+    secrets,
+    providerTransactionId,
+  );
 
   const expectedAmount = num(payment.amount) ?? 0;
   const expectedCurrency = str(payment.currency).toUpperCase();

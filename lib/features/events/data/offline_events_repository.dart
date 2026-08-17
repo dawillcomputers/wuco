@@ -218,6 +218,7 @@ class OfflineEventsRepository
   Future<EventPaymentOutcome> verifyPayment(
     String reference, {
     String? paymentReference,
+    String? transactionId,
   }) async {
     // Nothing to verify offline. Reporting success here would be the exact
     // mistake the live implementation exists to prevent.

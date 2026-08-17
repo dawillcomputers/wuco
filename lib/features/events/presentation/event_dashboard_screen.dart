@@ -60,7 +60,13 @@ class _EventDashboardScreenState extends ConsumerState<EventDashboardScreen> {
     try {
       final outcome = await ref
           .read(eventActionsProvider)
-          .verifyPayment(widget.reference);
+          .verifyPayment(
+            widget.reference,
+            // Flutterwave returns the payer here with `transaction_id` on the
+            // URL. It is the only thing the API can verify the payment by, so
+            // it is read from the address rather than assumed.
+            transactionId: Uri.base.queryParameters['transaction_id'],
+          );
       if (!mounted) return;
       setState(() {
         _outcome = outcome;

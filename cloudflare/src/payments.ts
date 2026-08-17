@@ -16,10 +16,12 @@
  */
 
 import {
-  FlutterwavePaymentService,
-  readWebhookEvent,
-  resolveConfig,
-} from './flutterwave';
+  createHostedCheckout,
+  readV3Webhook,
+  resolveV3Config,
+  verifyTransaction,
+  webhookHash,
+} from './flutterwave_v3';
 import { str } from './http';
 
 export type ProviderName = 'FLUTTERWAVE' | 'PAYSTACK' | 'MANUAL';
@@ -29,17 +31,29 @@ export type PaymentOutcome = 'PENDING' | 'PROCESSING' | 'PAID' | 'FAILED' | 'CAN
 /**
  * Secrets live in the Worker environment; they are never sent to a client.
  *
- * Flutterwave V4 authenticates with an OAuth client pair rather than a static
- * secret key, and its base URL is configuration because the published V4
- * specification documents only the sandbox host.
+ * Flutterwave v3 authenticates with a single secret key whose prefix says
+ * whether it is a test key, so the environment cannot be configured wrongly
+ * — there is nothing separate to configure.
  */
 export interface PaymentSecrets {
+  /**
+   * Flutterwave v3, which is what takes payments.
+   *
+   * The key carries its own environment — a test key is prefixed
+   * `FLWSECK_TEST` — so there is no separate setting to get wrong, and no way
+   * to point a live key at a sandbox or the reverse.
+   */
+  FLW_SECRET_KEY?: string;
+  /** The secret hash from the dashboard's webhook page. */
+  FLW_SECRET_HASH?: string;
+
+  // V4 credentials, kept because the account still holds them and a future
+  // migration will want them. Nothing on the payment path reads these.
   FLW_ENVIRONMENT?: string;
   FLW_V4_BASE_URL?: string;
   FLW_CLIENT_ID?: string;
   FLW_CLIENT_SECRET?: string;
   FLW_WEBHOOK_SECRET?: string;
-  /** Reserved for the card direct-charge flow; nothing sends it today. */
   FLW_ENCRYPTION_KEY?: string;
   PAYSTACK_SECRET_KEY?: string;
 }
@@ -114,6 +128,15 @@ interface PaymentProvider {
   verify(
     reference: string,
     secrets: PaymentSecrets,
+    /**
+     * The processor's own id for the attempt, where WEA has one.
+     *
+     * Flutterwave v3 verifies by transaction id, which arrives on the return
+     * redirect and again on the webhook. Without one there is nothing to ask
+     * about, and the payment stays pending rather than being resolved by
+     * guesswork.
+     */
+    transactionId?: string,
   ): Promise<VerifyResult>;
 }
 
@@ -219,31 +242,30 @@ const paystack: PaymentProvider = {
 // ---------------------------------------------------------------------------
 
 /**
- * Flutterwave V4 (Next Gen).
+ * Flutterwave v3 Standard — the hosted checkout.
  *
- * The V3 implementation this replaces is gone rather than deprecated: leaving
- * two payment paths in the codebase is how the wrong one gets used.
+ * WEA describes the payment and hands the payer a link; Flutterwave collects
+ * it on its own page, with card first. The V4 per-method integration this
+ * replaces could not work at all — it required WEA to create a card payment
+ * method server-side, which Flutterwave will only do if it is given the card
+ * number, and holding one is precisely what the academy must not do.
  */
 const flutterwave: PaymentProvider = {
   name: 'FLUTTERWAVE',
 
-  isConfigured: (secrets) => resolveConfig(secrets).usable,
+  isConfigured: (secrets) => resolveV3Config(secrets).usable,
 
   async initialise(input, _method, secrets) {
-    const service = FlutterwavePaymentService.from(secrets);
-    const result = await service.createPaymentOrder({
+    const config = resolveV3Config(secrets);
+    const result = await createHostedCheckout(config, {
       reference: input.reference,
       amount: input.amount,
       currency: input.currency,
-      // Bank transfer is the default where the payer expressed no preference:
-      // it is the method with the widest reach and no card exposure.
-      methodKey: input.methodKey ?? 'bank_transfer',
       email: input.email,
-      firstName: input.name.split(' ')[0] ?? '',
-      lastName: input.name.split(' ').slice(1).join(' '),
+      name: input.name,
       phone: input.phone,
+      description: input.description,
       returnUrl: input.returnUrl,
-      customerId: input.customerId,
     });
 
     if (!result.ok) {
@@ -253,32 +275,42 @@ const flutterwave: PaymentProvider = {
         message: result.message,
       };
     }
-    return {
-      ok: true,
-      checkoutUrl: result.checkoutUrl,
-      transactionId: result.orderId,
-      customerId: result.customerId,
-      nextAction: result.nextAction,
-    };
+    // Always a checkout: there is no direct-charge path any more, so there are
+    // no instructions to show and no next action to carry out.
+    return { ok: true, checkoutUrl: result.link };
   },
 
-  async verify(reference, secrets) {
-    const service = FlutterwavePaymentService.from(secrets);
-    const result = await service.verifyPayment(reference);
+  async verify(reference, secrets, transactionId) {
+    const config = resolveV3Config(secrets);
+    const result = await verifyTransaction(config, str(transactionId));
 
     if (!result.found) {
-      // Never heard of: the payer has not started, or the lookup failed. Either
-      // way this is not a failure of the payment — it stays pending.
-      return { status: 'PENDING', reason: 'Not found at the processor.', payload: {} };
+      // Nothing to ask about yet, or the lookup failed. Either way this is not
+      // the processor saying the payment failed, so it stays pending.
+      return {
+        status: 'PENDING',
+        reason: 'Not yet confirmed by the processor.',
+        payload: {},
+      };
+    }
+
+    // The reference has to match. A transaction id that resolves to somebody
+    // else's payment would otherwise settle this registration with it.
+    if (result.reference !== '' && result.reference !== reference) {
+      return {
+        status: 'FAILED',
+        reason: `Reference mismatch: ${result.reference} against ${reference}.`,
+        payload: result.raw,
+      };
     }
 
     return {
       status:
-        result.status === 'completed' || result.status === 'succeeded'
+        result.status === 'successful'
           ? 'PAID'
           : result.status === 'failed'
             ? 'FAILED'
-            : result.status === 'voided' || result.status === 'cancelled'
+            : result.status === 'cancelled'
               ? 'CANCELLED'
               : 'PROCESSING',
       transactionId: result.transactionId,
@@ -367,9 +399,11 @@ export const verifyPayment = (
   provider: string,
   reference: string,
   secrets: PaymentSecrets,
+  /** The processor's id for the attempt, where one has reached us. */
+  transactionId?: string,
 ): Promise<VerifyResult> => {
   const found = PROVIDERS.find((candidate) => candidate.name === provider) ?? manual;
-  return found.verify(reference, secrets);
+  return found.verify(reference, secrets, transactionId);
 };
 
 // ---------------------------------------------------------------------------
@@ -404,6 +438,8 @@ export interface WebhookNotice {
   provider: ProviderName;
   /** Our own reference, which is what the registration is found by. */
   reference: string;
+  /** The processor's id for the attempt, needed to verify it afterwards. */
+  transactionId?: string;
 }
 
 /**
@@ -441,18 +477,21 @@ export async function readWebhook(
   }
 
   if (name === 'FLUTTERWAVE') {
-    // V4 signs the raw body: HMAC-SHA256, base64, in `flutterwave-signature`.
-    // The V3 scheme — comparing a static hash header for equality — would
-    // accept a header anybody who had seen it could replay.
-    const event = await readWebhookEvent(
+    // v3 authenticates with a shared secret in `verif-hash` rather than a
+    // signature over the body. Weaker than a signature — anyone who has seen
+    // the header could replay it — so the notice is treated as a hint only:
+    // nothing is marked paid until the transaction has been verified against
+    // Flutterwave directly, which is what `settleEventPayment` then does.
+    const event = readV3Webhook(
       rawBody,
-      request.headers.get('flutterwave-signature') ?? '',
-      str(secrets.FLW_WEBHOOK_SECRET),
+      request.headers.get('verif-hash') ?? '',
+      webhookHash(secrets),
     );
     return {
       ok: event.ok,
       provider: 'FLUTTERWAVE',
       reference: event.reference,
+      transactionId: event.transactionId,
     };
   }
 

@@ -1,5 +1,5 @@
 /**
- * Verifies the Flutterwave V4 integration's safety properties without needing
+ * Verifies the Flutterwave v3 integration's safety properties without needing
  * credentials or touching a live account.
  *
  * These are the checks that must hold whatever Flutterwave's account is
@@ -11,11 +11,10 @@
  */
 
 import {
-  FlutterwavePaymentService,
-  readWebhookEvent,
-  resolveConfig,
-  verifyWebhookSignature,
-} from '../src/flutterwave';
+  paymentOptionsFor,
+  readV3Webhook,
+  resolveV3Config,
+} from '../src/flutterwave_v3';
 import {
   feeTierFrom,
   implicitTier,
@@ -43,109 +42,47 @@ function section(title: string) {
 async function main() {
   // --- Environment safety --------------------------------------------------
 
-  section('Environment defaults');
+  section('The key decides the environment');
 
-  const empty = resolveConfig({});
-  check('no configuration means SANDBOX', empty.environment === 'SANDBOX');
+  const unset = resolveV3Config({});
+  check('no key means unusable', !unset.usable);
+  check('and it says which one is missing', unset.reason.includes('FLW_SECRET_KEY'));
+
+  const testKey = resolveV3Config({ FLW_SECRET_KEY: 'FLWSECK_TEST-abc123-X' });
+  check('a test key is SANDBOX', testKey.environment === 'SANDBOX');
+  check('and is usable', testKey.usable);
+
+  const liveKey = resolveV3Config({ FLW_SECRET_KEY: 'FLWSECK-abc123-X' });
   check(
-    'sandbox host is the documented one',
-    empty.baseUrl === 'https://developersandbox-api.flutterwave.com',
-    empty.baseUrl,
-  );
-  check('no credentials means unusable', !empty.usable);
-
-  const sandbox = resolveConfig({
-    FLW_CLIENT_ID: 'test-id',
-    FLW_CLIENT_SECRET: 'test-secret',
-  });
-  check('credentials alone are enough for sandbox', sandbox.usable);
-  check('and it is still SANDBOX', sandbox.environment === 'SANDBOX');
-
-  // The property that matters most: production cannot happen by halves.
-  const halfProduction = resolveConfig({
-    FLW_ENVIRONMENT: 'PRODUCTION',
-    FLW_CLIENT_ID: 'test-id',
-    FLW_CLIENT_SECRET: 'test-secret',
-  });
-  check(
-    'PRODUCTION without a base URL is refused',
-    !halfProduction.usable,
-    'a half-configured deployment must not reach a live processor',
-  );
-  check('and it has no base URL to fall back to', halfProduction.baseUrl === '');
-
-  const production = resolveConfig({
-    FLW_ENVIRONMENT: 'PRODUCTION',
-    FLW_V4_BASE_URL: 'https://example.invalid/v4',
-    FLW_CLIENT_ID: 'test-id',
-    FLW_CLIENT_SECRET: 'test-secret',
-  });
-  check('PRODUCTION with a base URL is usable', production.usable);
-  check(
-    'the production host is never compiled in',
-    production.baseUrl === 'https://example.invalid/v4',
-  );
-
-  const lowercase = resolveConfig({
-    FLW_ENVIRONMENT: 'production',
-    FLW_V4_BASE_URL: 'https://example.invalid/v4',
-    FLW_CLIENT_ID: 'a',
-    FLW_CLIENT_SECRET: 'b',
-  });
-  check('the environment name is case-insensitive', lowercase.environment === 'PRODUCTION');
-
-  const typo = resolveConfig({
-    FLW_ENVIRONMENT: 'prod',
-    FLW_CLIENT_ID: 'a',
-    FLW_CLIENT_SECRET: 'b',
-  });
-  check(
-    'an unrecognised environment falls back to SANDBOX',
-    typo.environment === 'SANDBOX',
-    'anything not exactly PRODUCTION must be treated as a test',
-  );
-
-  // --- Payment methods -----------------------------------------------------
-
-  section('Payment methods');
-
-  const unusable = new FlutterwavePaymentService(empty);
-  check(
-    'an unconfigured deployment offers nothing',
-    unusable.getPaymentMethods('NGN').length === 0,
-    'offering a method that cannot complete is worse than offering none',
-  );
-
-  const service = new FlutterwavePaymentService(sandbox);
-
-  const naira = service.getPaymentMethods('NGN');
-  check('naira offers the Nigerian rails', naira.length > 1, `${naira.length}`);
-  check(
-    'and includes bank transfer and USSD',
-    naira.some((method) => method.key === 'bank_transfer') &&
-      naira.some((method) => method.key === 'ussd'),
-  );
-
-  const dollars = service.getPaymentMethods('USD');
-  check(
-    'dollars offer only what can settle in dollars',
-    dollars.every((method) => method.currencies.length === 0),
-    dollars.map((method) => method.key).join(', '),
+    'a live key is PRODUCTION',
+    liveKey.environment === 'PRODUCTION',
+    'the key carries the environment, so the two cannot disagree',
   );
   check(
-    'USSD is not offered against a dollar price',
-    !dollars.some((method) => method.key === 'ussd'),
-    'it would fail at the processor after the payer had committed',
+    'a stray FLW_ENVIRONMENT cannot override it',
+    resolveV3Config({
+      FLW_SECRET_KEY: 'FLWSECK_TEST-abc',
+      FLW_ENVIRONMENT: 'PRODUCTION',
+    } as never).environment === 'SANDBOX',
+    'this is the half-configured production the V4 setup had to guard by hand',
   );
 
-  const card = service.getPaymentMethods('USD').find((m) => m.key === 'card');
+  // --- What the checkout offers ---------------------------------------------
+
+  section('The checkout leads with card');
+
+  const nairaOptions = paymentOptionsFor('NGN');
+  check('naira leads with card', nairaOptions.startsWith('card'));
+  check('and offers the Nigerian rails too', nairaOptions.includes('banktransfer'));
+
+  const dollarOptions = paymentOptionsFor('USD');
+  check('dollars lead with card', dollarOptions.startsWith('card'));
   check(
-    'card is a redirect, never a direct charge',
-    card?.flow === 'redirect',
-    'a direct card charge would put WEA in PCI scope',
+    'and omit rails that cannot settle dollars',
+    !dollarOptions.includes('banktransfer') && !dollarOptions.includes('ussd'),
+    'offering one would fail after the payer had committed to it',
   );
-  const transfer = naira.find((method) => method.key === 'bank_transfer');
-  check('bank transfer is a direct charge', transfer?.flow === 'directCharge');
+
 
   // --- Pricing ---------------------------------------------------------------
 
@@ -403,91 +340,58 @@ async function main() {
 
   section('Secrets never leave the Worker');
 
-  const withSecrets = resolveConfig({
-    FLW_CLIENT_ID: 'id-SHOULD-NOT-LEAK',
-    FLW_CLIENT_SECRET: 'secret-SHOULD-NOT-LEAK',
-    FLW_WEBHOOK_SECRET: 'webhook-SHOULD-NOT-LEAK',
-    FLW_ENCRYPTION_KEY: 'encryption-SHOULD-NOT-LEAK',
+  const secretConfig = resolveV3Config({
+    FLW_SECRET_KEY: 'FLWSECK_TEST-SHOULD-NOT-LEAK',
+    FLW_SECRET_HASH: 'hash-SHOULD-NOT-LEAK',
   });
-  const secretService = new FlutterwavePaymentService(withSecrets);
-
-  check('the encryption key is stored', withSecrets.encryptionKey !== '');
-  check(
-    'and reported only as a boolean',
-    secretService.hasEncryptionKey === true,
-    'returning the value itself is the first step to it reaching a response',
-  );
-
-  // Everything a client can be handed, serialised, must contain no credential.
   const clientVisible = JSON.stringify({
-    methods: secretService.getPaymentMethods('NGN'),
-    environment: secretService.environment,
+    environment: secretConfig.environment,
+    usable: secretConfig.usable,
+    payment_options: paymentOptionsFor('NGN'),
   });
   check(
     'no credential appears in anything sent to a client',
     !clientVisible.includes('SHOULD-NOT-LEAK'),
-    clientVisible.slice(0, 120),
+    clientVisible.slice(0, 140),
+  );
+  check(
+    'the environment is reported, and is only a word',
+    clientVisible.includes('SANDBOX'),
   );
 
-  // --- Webhook signatures --------------------------------------------------
+  // --- Webhooks --------------------------------------------------------------
 
-  section('Webhook signature (V4: HMAC-SHA256, base64)');
+  section('A webhook cannot be forged');
 
-  const secret = 'a-test-webhook-secret';
-  const body = JSON.stringify({
-    type: 'charge.completed',
-    data: { id: 'chg_test', reference: 'WEA-EVT-2026-00123-abc', status: 'succeeded' },
+  const hash = 'a-shared-secret-value';
+  const notice = JSON.stringify({
+    event: 'charge.completed',
+    data: { id: 99, tx_ref: 'WEA-EVT-2026-00123-abc', status: 'successful' },
   });
 
-  // Signed the way Flutterwave documents it.
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
+  const accepted = readV3Webhook(notice, hash, hash);
+  check('a correctly hashed notice is accepted', accepted.ok);
+  check(
+    'and yields the reference',
+    accepted.reference === 'WEA-EVT-2026-00123-abc',
+    accepted.reference,
   );
-  const signature = btoa(
-    String.fromCharCode(
-      ...new Uint8Array(
-        await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)),
-      ),
-    ),
+  check('and the transaction id to verify with', accepted.transactionId === '99');
+
+  check('a wrong hash is refused', !readV3Webhook(notice, 'wrong', hash).ok);
+  check('a missing header is refused', !readV3Webhook(notice, '', hash).ok);
+  check(
+    'an unconfigured deployment refuses every notice',
+    !readV3Webhook(notice, hash, '').ok,
+    'no secret must mean nothing is believed, not that everything is',
+  );
+  check('a malformed body is refused', !readV3Webhook('not json', hash, hash).ok);
+  check(
+    'the shared secret is never echoed back',
+    !JSON.stringify(accepted).includes(hash),
   );
 
-  check(
-    'a correctly signed body is accepted',
-    await verifyWebhookSignature(body, signature, secret),
-  );
-  check(
-    'a tampered body is rejected',
-    !(await verifyWebhookSignature(`${body} `, signature, secret)),
-    'the amount could otherwise be edited in flight',
-  );
-  check(
-    'the wrong secret is rejected',
-    !(await verifyWebhookSignature(body, signature, 'not-the-secret')),
-  );
-  check(
-    'an empty signature is rejected',
-    !(await verifyWebhookSignature(body, '', secret)),
-  );
-  check(
-    'an unconfigured secret rejects everything',
-    !(await verifyWebhookSignature(body, signature, '')),
-    'a deployment with no webhook secret must not accept webhooks',
-  );
 
-  const event = await readWebhookEvent(body, signature, secret);
-  check('a signed event yields its type', event.ok && event.type === 'charge.completed');
-  check(
-    'and only the reference is taken from it',
-    event.reference === 'WEA-EVT-2026-00123-abc',
-    event.reference,
-  );
-
-  const forged = await readWebhookEvent(body, 'ZmFrZQ==', secret);
-  check('a forged event yields nothing', !forged.ok && forged.reference === '');
 
   section(failures === 0 ? 'All checks passed.' : `${failures} check(s) FAILED.`);
   process.exit(failures === 0 ? 0 : 1);

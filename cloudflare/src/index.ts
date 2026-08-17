@@ -176,10 +176,17 @@ export interface Env {
   // offered to a payer, so an unconfigured deployment falls back to the
   // academy's own instructions rather than to a checkout that cannot work.
   //
-  // Flutterwave V4 authenticates with an OAuth client pair. FLW_ENVIRONMENT
-  // defaults to SANDBOX, and PRODUCTION additionally requires FLW_V4_BASE_URL
-  // — there is no compiled-in production host, so a half-configured
-  // deployment fails loudly instead of charging real cards.
+  // Flutterwave v3 takes the payments: one secret key, whose prefix says
+  // whether it is a test key (`FLWSECK_TEST-…`) or a live one. There is no
+  // separate environment setting to contradict it.
+  //
+  //   FLW_SECRET_KEY   the v3 secret key from the dashboard
+  //   FLW_SECRET_HASH  the webhook secret hash, sent back in `verif-hash`
+  //
+  // The V4 pair below is unused on the payment path and kept only because the
+  // account still holds it.
+  FLW_SECRET_KEY?: string;
+  FLW_SECRET_HASH?: string;
   FLW_ENVIRONMENT?: string;
   FLW_V4_BASE_URL?: string;
   FLW_CLIENT_ID?: string;
@@ -446,6 +453,8 @@ const LAST_OWNER_MESSAGE =
 
 /** Processor credentials, gathered in one place so nothing else reads them. */
 const paymentSecrets = (env: Env) => ({
+  FLW_SECRET_KEY: env.FLW_SECRET_KEY,
+  FLW_SECRET_HASH: env.FLW_SECRET_HASH,
   FLW_ENVIRONMENT: env.FLW_ENVIRONMENT,
   FLW_V4_BASE_URL: env.FLW_V4_BASE_URL,
   FLW_CLIENT_ID: env.FLW_CLIENT_ID,
@@ -646,6 +655,8 @@ async function settleAndNotify(
   mail: Mailer,
   paymentReference: string,
   registrationId: string,
+  /** Flutterwave's id for the attempt, from the redirect or the webhook. */
+  transactionId = '',
 ): Promise<Record<string, unknown> | undefined> {
   const before = await env.WEA_DB.prepare(
     'SELECT payment_status FROM event_registrations WHERE id = ?1',
@@ -657,6 +668,7 @@ async function settleAndNotify(
     env.WEA_DB,
     paymentReference,
     paymentSecrets(env),
+    transactionId,
   );
   if (!result.ok) return undefined;
 
@@ -1005,6 +1017,7 @@ export default {
               mail,
               notice.reference,
               eventPayment.registration_id,
+              notice.transactionId ?? '',
             );
           } else {
             // Tuition. Settling it enrols the applicant, so a payer who closed
@@ -1013,6 +1026,7 @@ export default {
               env.WEA_DB,
               notice.reference,
               paymentSecrets(env),
+              notice.transactionId ?? '',
             );
             if (settled.ok && settled.data?.enrolled === true) {
               await mailTuitionConfirmed(env, mail, notice.reference);
@@ -1422,6 +1436,10 @@ export default {
           mail,
           reference,
           str(registration.id),
+          // Flutterwave puts `transaction_id` on the return URL; the client
+          // passes it through. Without it there is nothing to verify against,
+          // and the payment waits for the webhook instead.
+          str(body.transaction_id),
         );
         if (!settled) return fail('NOT_FOUND', 404, allowed);
         return json(settled, 200, allowed);
@@ -1828,6 +1846,7 @@ export default {
           env.WEA_DB,
           reference,
           paymentSecrets(env),
+          str((await readJson(request)).transaction_id),
         );
         if (!result.ok) return fail(result.code!, 404, allowed);
         // The webhook may well have settled this first; the receipt is sent

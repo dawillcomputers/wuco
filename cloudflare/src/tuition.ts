@@ -179,6 +179,8 @@ export async function settleTuitionPayment(
   db: D1Database,
   paymentReference: string,
   secrets: PaymentSecrets,
+  /** The processor's id for the attempt, where one has reached us. */
+  transactionId = '',
 ): Promise<TuitionResult> {
   const payment = await db
     .prepare('SELECT * FROM programme_payments WHERE provider_reference = ?1')
@@ -193,10 +195,22 @@ export async function settleTuitionPayment(
     };
   }
 
+  const providerTransactionId =
+    str(transactionId) || str(payment.provider_transaction_id);
+  if (str(transactionId) !== '' && str(transactionId) !== str(payment.provider_transaction_id)) {
+    await db
+      .prepare(
+        'UPDATE programme_payments SET provider_transaction_id = ?1 WHERE id = ?2',
+      )
+      .bind(str(transactionId), payment.id)
+      .run();
+  }
+
   const verification = await verifyPayment(
     str(payment.provider),
     paymentReference,
     secrets,
+    providerTransactionId,
   );
 
   const expected = num(payment.amount) ?? 0;
