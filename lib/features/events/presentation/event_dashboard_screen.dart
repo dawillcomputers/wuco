@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/services/checkout_launcher.dart';
+
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../core/responsive/responsive.dart';
@@ -95,11 +97,14 @@ class _EventDashboardScreenState extends ConsumerState<EventDashboardScreen> {
       if (!mounted) return;
       setState(() => _verifying = false);
       if (intent.hasCheckout) {
-        await launchUrl(
-          Uri.parse(intent.checkoutUrl!),
-          mode: LaunchMode.platformDefault,
-          webOnlyWindowName: '_self',
-        );
+        final opened = await openCheckout(intent.checkoutUrl!);
+        if (!opened && mounted) {
+          setState(
+            () => _error =
+                'Your browser did not open the payment page. Try again, or '
+                'allow this site to open it.',
+          );
+        }
       } else if (mounted) {
         _notify(
           intent.instructions.isEmpty

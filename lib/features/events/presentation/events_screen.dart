@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../../core/services/checkout_launcher.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
@@ -217,11 +217,11 @@ class _PayNowButtonState extends ConsumerState<_PayNowButton> {
       setState(() => _busy = false);
 
       if (intent.hasCheckout) {
-        await launchUrl(
-          Uri.parse(intent.checkoutUrl!),
-          mode: LaunchMode.platformDefault,
-          webOnlyWindowName: '_self',
-        );
+        final opened = await openCheckout(intent.checkoutUrl!);
+        if (opened) return;
+        // The browser refused the navigation. The registration page carries
+        // the same action, so send them there rather than doing nothing.
+        if (mounted) context.go('/events/registration/${widget.reference}');
         return;
       }
       // No checkout to open: the registration page explains what to do

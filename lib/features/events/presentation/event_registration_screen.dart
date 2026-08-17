@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../../core/services/checkout_launcher.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
@@ -188,13 +188,17 @@ class _EventRegistrationScreenState
       });
 
       if (intent.hasCheckout) {
-        // Same tab on the web: the processor sends the payer back to the
-        // registration page, and a new tab would strand them there.
-        await launchUrl(
-          Uri.parse(intent.checkoutUrl!),
-          mode: LaunchMode.platformDefault,
-          webOnlyWindowName: '_self',
-        );
+        final opened = await openCheckout(intent.checkoutUrl!);
+        // A launch that fails and is ignored is what makes a payment button
+        // look broken. If the browser refused it, say so and leave the link on
+        // screen — pressing that is a fresh gesture, which nothing blocks.
+        if (!opened && mounted) {
+          setState(
+            () => _error =
+                'Your browser did not open the payment page. Use the button '
+                'below to continue to it.',
+          );
+        }
       }
     } on EventFailure catch (failure) {
       if (!mounted) return;
@@ -703,7 +707,27 @@ class _EventRegistrationScreenState
               ),
             ),
           )
-        else
+        // A checkout was opened. It stays reachable from here because a
+        // browser can refuse the automatic navigation, and because a payer who
+        // came back without paying should not have to start again — pressing
+        // this is a fresh gesture, which nothing blocks.
+        else if (intent.hasCheckout) ...[
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => openCheckout(intent.checkoutUrl!),
+              child: const Text('CONTINUE TO PAYMENT'),
+            ),
+          ),
+          const SizedBox(height: WEAInsets.sm),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: _goToRegistration,
+              child: const Text('VIEW MY REGISTRATION'),
+            ),
+          ),
+        ] else
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
