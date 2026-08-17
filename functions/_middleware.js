@@ -99,14 +99,15 @@ export async function onRequest(context) {
   const { request, next, env } = context;
   const url = new URL(request.url);
 
-  // Anything that is not a page: assets, the bundle, the manifest. Passed
-  // through untouched.
-  const accepts = request.headers.get('Accept') ?? '';
-  if (
-    request.method !== 'GET' ||
-    !accepts.includes('text/html') ||
-    /\.[a-z0-9]+$/i.test(url.pathname)
-  ) {
+  // Anything that is not a page: assets, the bundle, the manifest. Recognised
+  // by having a file extension, and confirmed below by the response's own
+  // content type.
+  //
+  // Deliberately *not* filtered on the `Accept` header. Facebook's crawler
+  // sends `Accept: */*`, and so do several others — gating on `text/html`
+  // would hand exactly those callers the empty shell this function exists to
+  // replace, while working perfectly in a browser and in every test.
+  if (request.method !== 'GET' || /\.[a-z0-9]+$/i.test(url.pathname)) {
     return next();
   }
 
