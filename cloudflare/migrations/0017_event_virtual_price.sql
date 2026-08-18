@@ -1,0 +1,24 @@
+-- The online price, on the event itself.
+--
+-- A hybrid event charges differently for coming to the room and for watching,
+-- and that is the whole of what most events need. Expressing it only as rows
+-- in `event_prices` meant leaving the event you were editing, choosing it
+-- again from a list, and adding two rows to say one thing — so in practice
+-- nobody did, and hybrid events went on charging one price both ways.
+--
+-- So the event now carries both directly:
+--
+--   fee_amount / fee_currency / prices   what it costs to attend in person
+--   virtual_prices                       what it costs to attend online
+--
+-- Same shape as `prices`: a currency map, {"NGN": 100000, "USD": 75}, set with
+-- the same selector. Empty means the event charges one price however you
+-- attend, which is what every event does today and what a physical-only or
+-- online-only event will always do.
+--
+-- `event_prices` is untouched and still takes precedence. It is what an early
+-- bird rate needs — a price that closes on a date — and rows there replace
+-- these columns entirely. This is the simple case made simple, not a
+-- replacement for the general one.
+
+ALTER TABLE events ADD COLUMN virtual_prices TEXT NOT NULL DEFAULT '{}';

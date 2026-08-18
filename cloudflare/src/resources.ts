@@ -299,6 +299,7 @@ export const RESOURCES: ResourceSpec[] = [
       // charged, decided at the moment of payment — not from a per-event
       // setting that duplicates it and can contradict it.
       priceField('prices'),
+      priceField('virtual_prices'),
       text('payment_instructions'),
       text('contact_email'),
       text('contact_phone'),

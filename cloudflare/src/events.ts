@@ -178,7 +178,7 @@ export async function listEvents(
     .prepare(
       `SELECT id, slug, title, theme, subtitle, event_type, summary, image_key, image_url,
               starts_at, ends_at, timezone, venue, format, fee_amount, fee_currency,
-              prices,
+              prices, virtual_prices,
               registration_opens_at, registration_closes_at, registration_paused,
               capacity, featured, status
          FROM events
@@ -848,7 +848,9 @@ export async function feeTiersFor(
   }
 
   const event = await db
-    .prepare('SELECT fee_amount, fee_currency, prices FROM events WHERE id = ?1')
+    .prepare(
+      'SELECT fee_amount, fee_currency, prices, virtual_prices FROM events WHERE id = ?1',
+    )
     .bind(eventId)
     .first<Record<string, unknown>>();
   return implicitTier(event ?? {});

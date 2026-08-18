@@ -337,6 +337,55 @@ async function main() {
     tierFor(withLateFee, '', late)?.prices[0].amount === 220000,
   );
 
+  // --- The online price, set on the event -------------------------------------
+
+  section('An event can price attending online differently');
+
+  const hybridEvent = implicitTier({
+    fee_amount: 250000,
+    fee_currency: 'NGN',
+    prices: '{"EUR": 160}',
+    virtual_prices: '{"NGN": 180000, "EUR": 115}',
+  });
+
+  check('it becomes two tiers', hybridEvent.length === 2);
+  check(
+    'one for the room and one for watching',
+    hybridEvent.some((tier) => tier.mode === 'PHYSICAL') &&
+      hybridEvent.some((tier) => tier.mode === 'VIRTUAL'),
+  );
+  check(
+    'attending in person is charged the event fee',
+    resolveCharge(tierFor(hybridEvent, 'PHYSICAL')!.prices, 'NG')?.amount === 250000,
+  );
+  check(
+    'attending online is charged the online fee',
+    resolveCharge(tierFor(hybridEvent, 'VIRTUAL')!.prices, 'NG')?.amount === 180000,
+  );
+  check(
+    'each in the visitor own currency',
+    resolveCharge(tierFor(hybridEvent, 'VIRTUAL')!.prices, 'FR')?.amount === 115,
+  );
+  check(
+    'and both ways of attending are offered',
+    offeredModes(hybridEvent, 'HYBRID').sort().join(',') === 'PHYSICAL,VIRTUAL',
+  );
+
+  const noOnlinePrice = implicitTier({
+    fee_amount: 250000,
+    fee_currency: 'NGN',
+    virtual_prices: '{}',
+  });
+  check(
+    'an event with no online fee stays one price',
+    noOnlinePrice.length === 1 && noOnlinePrice[0].mode === 'ANY',
+    'which is what every event published so far does',
+  );
+  check(
+    'and charges it whichever way somebody attends',
+    resolveCharge(tierFor(noOnlinePrice, 'VIRTUAL')!.prices, 'NG')?.amount === 250000,
+  );
+
   // --- What a card shows ------------------------------------------------------
 
   section('A listing shows the least anybody could pay');

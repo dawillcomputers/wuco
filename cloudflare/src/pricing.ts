@@ -262,17 +262,28 @@ export function feeTierFrom(row: Record<string, unknown>): FeeTier {
 export function implicitTier(event: Record<string, unknown>): FeeTier[] {
   const prices = pricesFor(event, 'fee_amount', 'fee_currency');
   if (prices.length === 0) return [];
-  return [
-    {
-      id: '',
-      label: '',
-      mode: 'ANY',
-      prices,
-      availableFrom: '',
-      availableUntil: '',
-      sortOrder: 0,
-    },
-  ];
+
+  const bare = (mode: AttendanceMode, at: Price[], order: number): FeeTier => ({
+    id: '',
+    label: '',
+    mode,
+    prices: at,
+    availableFrom: '',
+    availableUntil: '',
+    sortOrder: order,
+  });
+
+  // An online price set on the event splits it in two: what the room costs and
+  // what watching costs. Everything downstream — which modes are offered, what
+  // a card shows, what the payer is charged — then follows from the same two
+  // tiers it would have got from `event_prices`, without anybody having to
+  // create rows to say one thing.
+  const online = Object.entries(parsePrices(event.virtual_prices)).map(
+    ([currency, amount]) => ({ currency, amount }),
+  );
+  if (online.length === 0) return [bare('ANY', prices, 0)];
+
+  return [bare('PHYSICAL', prices, 0), bare('VIRTUAL', online, 1)];
 }
 
 /** Whether a mode a registrant asked for is one this tier is sold in. */

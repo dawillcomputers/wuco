@@ -693,10 +693,19 @@ const cmsResources = <CmsResource>[
         label: 'Fee in other currencies',
         kind: CmsFieldKind.prices,
         help:
-            'Switch on each currency you sell in and set the amount. Together '
-            'with the fee above, this is what the event charges when it has no '
-            'Registration fees rows — add those for an early bird rate, or '
-            'different rates for attending in person and online.',
+            'Switch on each currency you sell in and set the amount. With the '
+            'fee above, this is what it costs to attend — in person, where '
+            'the event is hybrid.',
+      ),
+      CmsField(
+        column: 'virtual_prices',
+        label: 'Online fee',
+        kind: CmsFieldKind.prices,
+        help:
+            'What it costs to attend online, where that differs. Leave every '
+            'currency switched off and the event charges the same fee however '
+            'somebody attends. Only asked of a hybrid event — a physical or '
+            'online event has one way to attend and one price.',
       ),
       CmsField(
         column: 'payment_instructions',
