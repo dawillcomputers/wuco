@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/services/checkout_launcher.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
@@ -15,6 +14,7 @@ import '../application/events_providers.dart';
 import '../data/events_repository.dart';
 import '../domain/event_models.dart';
 import 'widgets/event_widgets.dart';
+import 'widgets/payment_choice_sheet.dart';
 
 /// A participant's own view of one registration.
 ///
@@ -120,48 +120,35 @@ class _EventDashboardScreenState extends ConsumerState<EventDashboardScreen> {
     }
   }
 
-  Future<void> _retryPayment() async {
-    setState(() {
-      _verifying = true;
-      _error = null;
-    });
-    try {
-      final intent = await ref
-          .read(eventActionsProvider)
-          .beginPayment(widget.reference);
-      if (!mounted) return;
-      setState(() => _verifying = false);
-      if (intent.hasCheckout) {
-        final opened = await openCheckout(intent.checkoutUrl!);
-        if (!opened && mounted) {
-          setState(
-            () => _error =
-                'Your browser did not open the payment page. Try again, or '
-                'allow this site to open it.',
-          );
-        }
-      } else if (mounted) {
-        _notify(
-          intent.instructions.isEmpty
-              ? 'The academy office will be in touch with payment instructions.'
-              : intent.instructions,
-        );
-      }
-    } on EventFailure catch (failure) {
-      if (!mounted) return;
-      setState(() {
-        _verifying = false;
-        _error = failure.message;
-      });
-    }
-  }
+  /// Asks how they want to pay, then takes them there.
+  ///
+  /// The same sheet the registration step uses, so "pay now" behaves
+  /// identically wherever it is pressed — and it asks the API which ways are
+  /// on offer rather than assuming a card, which is what made this button
+  /// ignore the transfer the event had configured.
+  Future<void> _payNow(EventDashboard data) async {
+    final options = await ref.read(
+      eventPaymentMethodsProvider((
+        slug: data.event.slug,
+        attendanceMode: data.registration.attendanceMode.isEmpty
+            ? null
+            : data.registration.attendanceMode,
+        country: data.registration.country.isEmpty
+            ? null
+            : data.registration.country,
+      )).future,
+    );
+    if (!mounted) return;
 
-  Future<void> _open(String? url) async {
-    if (url == null || url.isEmpty) {
-      _notify('That document is not available yet.');
-      return;
-    }
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    await showPaymentChoice(
+      context: context,
+      reference: widget.reference,
+      options: options,
+      attendanceMode: data.registration.attendanceMode.isEmpty
+          ? null
+          : data.registration.attendanceMode,
+    );
+    if (mounted) ref.invalidate(eventDashboardProvider(widget.reference));
   }
 
   Future<void> _join(EventSession session) async {
@@ -177,6 +164,14 @@ class _EventDashboardScreenState extends ConsumerState<EventDashboardScreen> {
     } on EventFailure catch (failure) {
       _notify(failure.message);
     }
+  }
+
+  Future<void> _open(String? url) async {
+    if (url == null || url.isEmpty) {
+      _notify('That document is not available yet.');
+      return;
+    }
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
   void _notify(String message) {
@@ -233,7 +228,7 @@ class _EventDashboardScreenState extends ConsumerState<EventDashboardScreen> {
           verifying: _verifying,
           outcome: _outcome,
           successMessage: data.successMessage,
-          onRetry: _retryPayment,
+          onRetry: () => _payNow(data),
         ),
         if (_error != null) ...[
           const SizedBox(height: WEAInsets.md),

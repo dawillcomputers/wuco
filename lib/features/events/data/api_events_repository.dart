@@ -211,19 +211,57 @@ class ApiEventsRepository
     String reference, {
     String? methodKey,
     String? attendanceMode,
+    String? paymentChoice,
   }) async => EventPaymentIntent.fromMap(
     await _send(
       'POST',
       '/api/events/registrations/$reference/payment',
       body: {
         'payment_method': methodKey ?? '',
-        // The server decides the amount, the rate and the currency. All this
-        // says is how the registrant is attending.
+        // The server decides the amount, the rate and the currency. These say
+        // how the registrant is attending and which way they mean to pay.
         'attendance_mode': attendanceMode ?? '',
+        'payment_choice': paymentChoice ?? '',
       },
       reference: reference,
     ),
   );
+
+  @override
+  Future<EventRegistration> uploadPaymentProof(
+    String reference, {
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+  }) async {
+    // Posted straight at the registration, because the CMS media endpoint is
+    // administrators only — a registrant uploading their own receipt should
+    // not need a permission that would also open the academy's library.
+    late http.Response response;
+    try {
+      response = await _client.post(
+        _uri('/api/events/registrations/$reference/payment-proof'),
+        headers: {
+          ...await _headers(reference: reference),
+          'Content-Type': contentType,
+          'X-Filename': filename,
+        },
+        body: bytes,
+      );
+    } catch (_) {
+      throw const EventFailure(EventFailureKind.network);
+    }
+
+    final decoded = response.body.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode >= 400) {
+      throw _mapError(response.statusCode, decoded);
+    }
+    return EventRegistration.fromMap(
+      Map<String, dynamic>.from(decoded['registration'] as Map),
+    );
+  }
 
   @override
   Future<EventRegistration> changeAttendance(

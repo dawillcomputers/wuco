@@ -1461,10 +1461,55 @@ export default {
         );
         if (!registration) return fail('NOT_FOUND', 404, allowed);
 
+        // The file arrives here directly rather than through the CMS media
+        // endpoint, which is administrators only. A registrant uploading their
+        // own receipt should not need a permission that would also let them
+        // read the academy's library.
+        const contentType = (request.headers.get('Content-Type') ?? '')
+          .split(';')[0]
+          .trim()
+          .toLowerCase();
+        const allowed_types = [
+          'image/jpeg',
+          'image/png',
+          'image/webp',
+          'image/heic',
+          'application/pdf',
+        ];
+        if (!allowed_types.includes(contentType)) {
+          return fail(
+            'UNSUPPORTED_TYPE',
+            415,
+            allowed,
+            'Upload a photograph or a PDF of your transfer receipt.',
+          );
+        }
+
+        const bytes = await request.arrayBuffer();
+        if (bytes.byteLength === 0) {
+          return fail('INVALID_REQUEST', 400, allowed, 'The file was empty.');
+        }
+        // Generous for a phone photograph, far short of anything that could
+        // fill the bucket.
+        if (bytes.byteLength > 10 * 1024 * 1024) {
+          return fail('FILE_TOO_LARGE', 413, allowed, 'Maximum size is 10 MB.');
+        }
+
+        const extension =
+          contentType === 'application/pdf'
+            ? 'pdf'
+            : contentType.split('/')[1].replace('jpeg', 'jpg');
+        // Opaque, and filed under the registration so a receipt can always be
+        // traced back to the place it was paying for.
+        const proofKey = `receipts/${str(registration.reference)}/${newId()}.${extension}`;
+        await env.WEA_MEDIA.put(proofKey, bytes, {
+          httpMetadata: { contentType },
+        });
+
         const result = await attachPaymentProof(
           env.WEA_DB,
           registration,
-          str((await readJson(request)).media_key),
+          proofKey,
         );
         if (!result.ok) {
           return fail(

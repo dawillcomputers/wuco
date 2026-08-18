@@ -202,6 +202,7 @@ class OfflineEventsRepository
     String reference, {
     String? methodKey,
     String? attendanceMode,
+    String? paymentChoice,
   }) async {
     final registration = _registration(reference);
     return EventPaymentIntent(
@@ -220,6 +221,14 @@ class OfflineEventsRepository
     String reference,
     EventAttendanceMode mode,
   ) async => _registration(reference);
+
+  @override
+  Future<EventRegistration> uploadPaymentProof(
+    String reference, {
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+  }) async => _registration(reference);
 
   @override
   Future<EventPaymentOutcome> verifyPayment(

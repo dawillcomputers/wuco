@@ -159,6 +159,19 @@ abstract interface class EventsRepository {
     String reference, {
     String? methodKey,
     String? attendanceMode,
+    /// `CARD` or `TRANSFER`. Card where nothing is said.
+    String? paymentChoice,
+  });
+
+  /// Attaches a receipt for a bank transfer.
+  ///
+  /// It does not pay for anything: the registration stays pending until
+  /// somebody at the academy confirms the money arrived.
+  Future<EventRegistration> uploadPaymentProof(
+    String reference, {
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
   });
 
   /// Moves a registration between attending in person and attending online.

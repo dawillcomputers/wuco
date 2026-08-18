@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/services/checkout_launcher.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
@@ -12,6 +11,7 @@ import '../application/events_providers.dart';
 import '../data/events_repository.dart';
 import '../domain/event_models.dart';
 import 'widgets/event_widgets.dart';
+import 'widgets/payment_choice_sheet.dart';
 
 /// The public events calendar.
 ///
@@ -169,7 +169,7 @@ class _MyRegistrations extends ConsumerWidget {
                     if (!row.registration.paymentStatus.settled)
                       Padding(
                         padding: const EdgeInsets.only(right: WEAInsets.xs),
-                        child: _PayNowButton(reference: row.registration.reference),
+                        child: _PayNowButton(row: row),
                       ),
                     WEAOutlinedButton(
                       label: 'OPEN',
@@ -196,9 +196,9 @@ class _MyRegistrations extends ConsumerWidget {
 /// and follows the checkout the API hands back — the amount and the currency
 /// are decided there, exactly as they are everywhere else.
 class _PayNowButton extends ConsumerStatefulWidget {
-  const _PayNowButton({required this.reference});
+  const _PayNowButton({required this.row});
 
-  final String reference;
+  final MyEventRegistration row;
 
   @override
   ConsumerState<_PayNowButton> createState() => _PayNowButtonState();
@@ -207,28 +207,36 @@ class _PayNowButton extends ConsumerStatefulWidget {
 class _PayNowButtonState extends ConsumerState<_PayNowButton> {
   bool _busy = false;
 
+  /// Asks how they want to pay, using the same sheet as everywhere else.
+  ///
+  /// The ways on offer come from the API, so a Nigerian registrant is shown
+  /// the transfer their event actually configured rather than being sent
+  /// straight to a card.
   Future<void> _pay() async {
     setState(() => _busy = true);
     try {
-      final intent = await ref
-          .read(eventActionsProvider)
-          .beginPayment(widget.reference);
+      final registration = widget.row.registration;
+      final options = await ref.read(
+        eventPaymentMethodsProvider((
+          slug: widget.row.event.slug,
+          attendanceMode: registration.attendanceMode.isEmpty
+              ? null
+              : registration.attendanceMode,
+          country: registration.country.isEmpty ? null : registration.country,
+        )).future,
+      );
       if (!mounted) return;
       setState(() => _busy = false);
 
-      if (intent.hasCheckout) {
-        final opened = await openCheckout(intent.checkoutUrl!);
-        if (opened) return;
-        // The browser refused the navigation. The registration page carries
-        // the same action, so send them there rather than doing nothing.
-        if (mounted) context.go('/events/registration/${widget.reference}');
-        return;
-      }
-      // No checkout to open: the registration page explains what to do
-      // instead, rather than this button trying to.
-      if (mounted) {
-        context.go('/events/registration/${widget.reference}');
-      }
+      await showPaymentChoice(
+        context: context,
+        reference: registration.reference,
+        options: options,
+        attendanceMode: registration.attendanceMode.isEmpty
+            ? null
+            : registration.attendanceMode,
+      );
+      if (mounted) ref.invalidate(myEventRegistrationsProvider);
     } on EventFailure catch (failure) {
       if (!mounted) return;
       setState(() => _busy = false);

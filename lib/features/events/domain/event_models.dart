@@ -827,6 +827,38 @@ class EventFeeTier {
   );
 }
 
+/// The academy's own bank account, for a transfer the office matches by hand.
+///
+/// Set per event by whoever created it, never compiled in. Absent entirely
+/// where a transfer is not on offer — which is every payer outside Nigeria,
+/// because the account is a Nigerian one.
+class EventTransferAccount {
+  const EventTransferAccount({
+    required this.accountName,
+    required this.bankName,
+    required this.accountNumber,
+    this.instructions = '',
+    this.proofRequired = true,
+  });
+
+  final String accountName;
+  final String bankName;
+  final String accountNumber;
+  final String instructions;
+
+  /// Whether a receipt has to be uploaded before the office will look at it.
+  final bool proofRequired;
+
+  factory EventTransferAccount.fromMap(Map<String, dynamic> map) =>
+      EventTransferAccount(
+        accountName: _text(map, 'account_name'),
+        bankName: _text(map, 'bank_name'),
+        accountNumber: _text(map, 'account_number'),
+        instructions: _text(map, 'instructions'),
+        proofRequired: map['proof_required'] != false,
+      );
+}
+
 /// The methods offered for one event, and which environment they run in.
 class EventPaymentOptions {
   const EventPaymentOptions({
@@ -840,6 +872,8 @@ class EventPaymentOptions {
     this.attendanceMode = '',
     this.attendanceModes = const [],
     this.feeTiers = const [],
+    this.cardAvailable = true,
+    this.transferAccount,
   });
 
   final List<EventPaymentMethod> methods;
@@ -862,6 +896,19 @@ class EventPaymentOptions {
   /// The whole fee table, so a registrant can see both ways of attending and
   /// what the rate becomes later.
   final List<EventFeeTier> feeTiers;
+
+  /// Whether a card payment is on offer. Always true where the processor is
+  /// configured, since a card is the only way to pay from most of the world.
+  final bool cardAvailable;
+
+  /// The academy's account, where a transfer is on offer. Null otherwise.
+  final EventTransferAccount? transferAccount;
+
+  bool get transferAvailable => transferAccount != null;
+
+  /// Whether there is a decision to make at all. One way to pay needs no
+  /// chooser — it just starts.
+  bool get hasPaymentChoice => cardAvailable && transferAvailable;
 
   /// Every currency the academy priced this in. A currency absent here is one
   /// WEA does not sell in, rather than one to convert into.
@@ -933,6 +980,13 @@ class EventPaymentOptions {
           ?EventAttendanceMode.parse('$value'),
       ],
       feeTiers: _rows(map['fee_tiers']).map(EventFeeTier.fromMap).toList(),
+      cardAvailable: (map['payment_choices'] as Map?)?['card'] != false,
+      transferAccount: switch ((map['payment_choices'] as Map?)?['transfer']) {
+        final Map transfer => EventTransferAccount.fromMap(
+          Map<String, dynamic>.from(transfer),
+        ),
+        _ => null,
+      },
     );
   }
 }
@@ -950,6 +1004,7 @@ class EventPaymentIntent {
     required this.currency,
     required this.instructions,
     this.checkoutUrl,
+    this.transferAccount,
   });
 
   final String provider;
@@ -957,6 +1012,12 @@ class EventPaymentIntent {
   final double amount;
   final String currency;
   final String instructions;
+
+  /// Where to transfer to, when a transfer is what was chosen. There is no
+  /// checkout on that path — the money moves outside WEA entirely.
+  final EventTransferAccount? transferAccount;
+
+  bool get isTransfer => transferAccount != null;
   final String? checkoutUrl;
 
   bool get hasCheckout => (checkoutUrl ?? '').trim().isNotEmpty;
@@ -968,6 +1029,12 @@ class EventPaymentIntent {
     currency: _text(map, 'currency'),
     instructions: _text(map, 'instructions'),
     checkoutUrl: map['checkout_url'] as String?,
+    transferAccount: switch (map['transfer']) {
+      final Map transfer => EventTransferAccount.fromMap(
+        Map<String, dynamic>.from(transfer),
+      ),
+      _ => null,
+    },
   );
 }
 

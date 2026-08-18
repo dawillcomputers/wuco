@@ -199,11 +199,13 @@ class EventActions {
     String reference, {
     String? methodKey,
     String? attendanceMode,
+    String? paymentChoice,
   }) async {
     final intent = await _events.beginPayment(
       reference,
       methodKey: methodKey,
       attendanceMode: attendanceMode,
+      paymentChoice: paymentChoice,
     );
     unawaitedReport(name: 'payment_started');
     return intent;
@@ -217,6 +219,23 @@ class EventActions {
     final updated = await _events.changeAttendance(reference, mode);
     _ref.invalidate(eventDashboardProvider(reference));
     _ref.invalidate(myEventRegistrationsProvider);
+    return updated;
+  }
+
+  /// Attaches a receipt for a bank transfer. Pays for nothing by itself.
+  Future<EventRegistration> uploadPaymentProof(
+    String reference, {
+    required List<int> bytes,
+    required String filename,
+    required String contentType,
+  }) async {
+    final updated = await _events.uploadPaymentProof(
+      reference,
+      bytes: bytes,
+      filename: filename,
+      contentType: contentType,
+    );
+    _ref.invalidate(eventDashboardProvider(reference));
     return updated;
   }
 
