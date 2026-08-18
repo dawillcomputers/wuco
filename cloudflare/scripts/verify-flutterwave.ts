@@ -20,6 +20,7 @@ import {
   implicitTier,
   offeredModes,
   currencyForCountry,
+  headlinePrice,
   parsePrices,
   pricesFor,
   resolveCharge,
@@ -334,6 +335,60 @@ async function main() {
   check(
     'afterwards the late fee applies',
     tierFor(withLateFee, '', late)?.prices[0].amount === 220000,
+  );
+
+  // --- What a card shows ------------------------------------------------------
+
+  section('A listing shows the least anybody could pay');
+
+  const hybrid = [
+    row('Standard', 'PHYSICAL', { NGN: 250000, EUR: 160 }),
+    row('Standard', 'VIRTUAL', { NGN: 180000, EUR: 115 }),
+  ];
+
+  check(
+    'a hybrid event shows the cheaper way to attend',
+    headlinePrice(hybrid, 'NG')?.price.amount === 180000,
+    'picking by row order showed whichever happened to come first',
+  );
+  check(
+    'and says it is a "from" price',
+    headlinePrice(hybrid, 'NG')?.from === true,
+  );
+  check(
+    'in the visitor own currency',
+    headlinePrice(hybrid, 'FR')?.price.currency === 'EUR' &&
+      headlinePrice(hybrid, 'FR')?.price.amount === 115,
+  );
+  check(
+    'and in sterling for the United Kingdom, falling back where unpriced',
+    headlinePrice(hybrid, 'GB')?.price.currency === 'EUR',
+    'no pound price is set on this tier, so the euro one stands in',
+  );
+
+  const oneWay = [row('Standard', 'ANY', { NGN: 250000 })];
+  check(
+    'a single price is not a "from" price',
+    headlinePrice(oneWay, 'NG')?.from === false,
+  );
+
+  const earlyAndStandard = [
+    row('Early Bird', 'ANY', { NGN: 150000 }, closes),
+    row('Standard', 'ANY', { NGN: 180000 }),
+  ];
+  check(
+    'while the early rate is open, that is what a card shows',
+    headlinePrice(earlyAndStandard, 'NG', early)?.price.amount === 150000,
+  );
+  check(
+    'and once it closes, the standard rate is the only one',
+    headlinePrice(earlyAndStandard, 'NG', late)?.price.amount === 180000 &&
+      headlinePrice(earlyAndStandard, 'NG', late)?.from === false,
+    'nothing else is open, so there is no "from" about it',
+  );
+  check(
+    'a free event has no headline price at all',
+    headlinePrice(implicitTier({ fee_amount: 0 }), 'NG') === null,
   );
 
   // --- Secrets stay server-side --------------------------------------------

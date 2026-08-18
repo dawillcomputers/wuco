@@ -27,6 +27,7 @@ import {
   AttendanceMode,
   FeeTier,
   feeTierFrom,
+  headlinePrice,
   implicitTier,
   offeredModes,
   resolveCharge,
@@ -140,12 +141,17 @@ async function withLocalPrices(
 
   return rows.map((row) => {
     const tiers = byEvent.get(str(row.id)) ?? implicitTier(row);
-    // No mode: a listing shows what the event costs, and the cheaper of two
-    // ways to attend is the honest headline figure.
-    const tier = tierFor(tiers, '');
-    const charge = tier ? resolveCharge(tier.prices, country) : null;
-    if (!charge) return row;
-    return { ...row, fee_amount: charge.amount, fee_currency: charge.currency };
+    // The cheapest price open today. A listing has one line for something that
+    // may have several prices, and the honest single number is the least
+    // anybody could pay — marked "from" where something costs more.
+    const headline = headlinePrice(tiers, country);
+    if (!headline) return row;
+    return {
+      ...row,
+      fee_amount: headline.price.amount,
+      fee_currency: headline.price.currency,
+      fee_from: headline.from,
+    };
   });
 }
 

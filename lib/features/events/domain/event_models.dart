@@ -222,6 +222,7 @@ class WeaEvent {
     required this.format,
     required this.feeAmount,
     required this.feeCurrency,
+    this.feeFrom = false,
     required this.status,
     required this.featured,
     required this.capacity,
@@ -245,6 +246,10 @@ class WeaEvent {
   final EventFormat format;
   final double feeAmount;
   final String feeCurrency;
+  /// Whether [feeLabel] is a "from" price because the event has more
+  /// than one — two ways of attending, or a rate that has not closed yet.
+  final bool feeFrom;
+
   final EventStatus status;
   final bool featured;
   final int? capacity;
@@ -256,8 +261,15 @@ class WeaEvent {
   String? get artwork => resolveMediaUrl(imageKey: imageKey, imageUrl: imageUrl);
 
   /// The fee as the academy quotes it — never computed from anything the
-  /// visitor can change.
-  String get feeLabel => isPaid ? formatMoney(feeAmount, feeCurrency) : 'Free to attend';
+  /// visitor can change, and already in their own currency.
+  ///
+  /// Prefixed "from" where the event has more than one price: a hybrid event
+  /// charging differently for attending in person and online has no single
+  /// figure, and the least anybody could pay is the only honest one to put on
+  /// a card. The exact amount is settled once they say how they are attending.
+  String get feeLabel => isPaid
+      ? '${feeFrom ? 'from ' : ''}${formatMoney(feeAmount, feeCurrency)}'
+      : 'Free to attend';
 
   factory WeaEvent.fromMap(Map<String, dynamic> map) => WeaEvent(
     id: _text(map, 'id'),
@@ -274,6 +286,7 @@ class WeaEvent {
     format: EventFormat.parse(_text(map, 'format')),
     feeAmount: _double(map, 'fee_amount'),
     feeCurrency: _text(map, 'fee_currency'),
+    feeFrom: _bool(map, 'fee_from'),
     status: EventStatus.parse(_text(map, 'status')),
     featured: _bool(map, 'featured'),
     capacity: _int(map, 'capacity'),

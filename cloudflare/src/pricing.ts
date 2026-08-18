@@ -112,10 +112,17 @@ export function suggestedCurrency(prices: Price[], country: string): string {
   const wanted = currencyForCountry(country);
   if (available.includes(wanted)) return wanted;
 
-  // Nothing priced in their own currency. Dollars are the closest thing to a
-  // universal fallback; naira is better than refusing to quote at all.
-  if (available.includes(INTERNATIONAL_CURRENCY)) return INTERNATIONAL_CURRENCY;
-  if (available.includes(HOME_CURRENCY)) return HOME_CURRENCY;
+  // Nothing priced in their own currency, so fall down a ladder rather than
+  // straight home. Dollars are the closest thing to universal, euro and
+  // sterling are readable across Europe, and naira comes last — a visitor in
+  // London shown a naira price when a euro one exists has been given the
+  // least useful number the academy holds.
+  //
+  // Anything still unmatched takes whatever was priced: an unexpected currency
+  // beats refusing to quote at all.
+  for (const fallback of [INTERNATIONAL_CURRENCY, 'EUR', 'GBP', HOME_CURRENCY]) {
+    if (available.includes(fallback)) return fallback;
+  }
   return available[0];
 }
 
@@ -337,6 +344,54 @@ export function offeredModes(tiers: FeeTier[], format: string): AttendanceMode[]
     modes.add(tier.mode);
   }
   return [...modes];
+}
+
+/** The cheapest price on offer today, and whether anything costs more. */
+export interface HeadlinePrice {
+  price: Price;
+  /**
+   * True when some other open tier costs a different amount — a second way of
+   * attending, or a rate that has not closed yet.
+   */
+  from: boolean;
+}
+
+/**
+ * What an event costs, for a card or a listing.
+ *
+ * The lowest price open today, because a listing has one line for something
+ * that may have several prices and the honest single number is the least
+ * somebody could pay. Where another tier costs more, [HeadlinePrice.from] says
+ * so, and the interface renders it as "from".
+ *
+ * This replaces asking `tierFor` with no mode, which matched every mode and
+ * then picked by closing date and sort order — so a hybrid event showed its
+ * physical or its virtual price depending on which row happened to come first.
+ *
+ * It reads across both dimensions at once, which is right for both: of Early
+ * Bird and Standard, only the cheaper is what anybody pays today; of physical
+ * and virtual, the cheaper is the "from".
+ */
+export function headlinePrice(
+  tiers: FeeTier[],
+  country: string,
+  at: Date = new Date(),
+): HeadlinePrice | null {
+  const charges: Price[] = [];
+  for (const tier of tiers) {
+    if (!tierIsOpen(tier, at)) continue;
+    const charge = resolveCharge(tier.prices, country);
+    if (charge) charges.push(charge);
+  }
+  if (charges.length === 0) return null;
+
+  const cheapest = charges.reduce((low, next) =>
+    next.amount < low.amount ? next : low,
+  );
+  return {
+    price: cheapest,
+    from: charges.some((charge) => charge.amount !== cheapest.amount),
+  };
 }
 
 /** Every tier a registrant could be shown, for listing the fee table. */
