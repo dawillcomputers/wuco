@@ -844,7 +844,14 @@ export default {
 
       if (method === 'GET' && path === '/api/events') {
         return json(
-          { events: await listEvents(env.WEA_DB, url.searchParams) },
+          {
+            events: await listEvents(
+              env.WEA_DB,
+              url.searchParams,
+              // The price on the card is the price on the receipt.
+              countryOf(request),
+            ),
+          },
           200,
           allowed,
         );
@@ -930,7 +937,11 @@ export default {
 
       const eventMatch = path.match(/^\/api\/events\/([^/]+)$/);
       if (method === 'GET' && eventMatch) {
-        const result = await getEvent(env.WEA_DB, decodeURIComponent(eventMatch[1]));
+        const result = await getEvent(
+          env.WEA_DB,
+          decodeURIComponent(eventMatch[1]),
+          countryOf(request),
+        );
         if (!result) return fail('NOT_FOUND', 404, allowed);
         return json(result, 200, allowed);
       }

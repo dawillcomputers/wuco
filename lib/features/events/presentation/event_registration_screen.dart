@@ -448,10 +448,14 @@ class _EventRegistrationScreenState
             autofill: const [AutofillHints.organizationName],
           ),
           _Field(controller: _jobTitle, label: 'Job title (optional)'),
+          // Required: it is what the academy invoices and reports against, and
+          // what the fee is priced in where the visitor's own location cannot
+          // be read. The API enforces this too.
           _Field(
             controller: _country,
-            label: 'Country (optional)',
+            label: 'Country',
             autofill: const [AutofillHints.countryName],
+            validator: _required,
           ),
           for (final field in later)
             _CustomField(

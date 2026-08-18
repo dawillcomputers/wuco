@@ -97,7 +97,63 @@ const decodeAgenda = (row: Record<string, unknown>) => ({
 // Public reads
 // ---------------------------------------------------------------------------
 
-export async function listEvents(db: D1Database, params: URLSearchParams) {
+/**
+ * Rewrites each row's fee into the currency the visitor will actually be
+ * charged in.
+ *
+ * A price on a card has to be the price on the receipt. Showing every visitor
+ * the naira figure and then charging a French one in euro at the last step is
+ * how a registration is abandoned — and it was doing exactly that, because
+ * only the payment step was ever made country-aware.
+ *
+ * `fee_amount` and `fee_currency` are overwritten rather than added alongside,
+ * so every caller that already renders them shows the right number without
+ * knowing anything new.
+ *
+ * One query for the tiers of every event listed, not one per event.
+ */
+async function withLocalPrices(
+  db: D1Database,
+  rows: Record<string, unknown>[],
+  country: string,
+): Promise<Record<string, unknown>[]> {
+  if (rows.length === 0) return rows;
+
+  const ids = rows.map((row) => str(row.id));
+  const tierRows = await db
+    .prepare(
+      `SELECT id, event_id, tier_label, attendance_mode, prices, available_from,
+              available_until, sort_order
+         FROM event_prices
+        WHERE event_id IN (${ids.map((_, index) => `?${index + 1}`).join(', ')})
+        ORDER BY sort_order, created_at`,
+    )
+    .bind(...ids)
+    .all();
+
+  const byEvent = new Map<string, FeeTier[]>();
+  for (const row of tierRows.results) {
+    const record = row as Record<string, unknown>;
+    const key = str(record.event_id);
+    byEvent.set(key, [...(byEvent.get(key) ?? []), feeTierFrom(record)]);
+  }
+
+  return rows.map((row) => {
+    const tiers = byEvent.get(str(row.id)) ?? implicitTier(row);
+    // No mode: a listing shows what the event costs, and the cheaper of two
+    // ways to attend is the honest headline figure.
+    const tier = tierFor(tiers, '');
+    const charge = tier ? resolveCharge(tier.prices, country) : null;
+    if (!charge) return row;
+    return { ...row, fee_amount: charge.amount, fee_currency: charge.currency };
+  });
+}
+
+export async function listEvents(
+  db: D1Database,
+  params: URLSearchParams,
+  country = '',
+) {
   const clauses = [`status IN (${PUBLIC_STATUSES.map((_, i) => `?${i + 1}`).join(', ')})`];
   const binds: unknown[] = [...PUBLIC_STATUSES];
 
@@ -116,6 +172,7 @@ export async function listEvents(db: D1Database, params: URLSearchParams) {
     .prepare(
       `SELECT id, slug, title, theme, subtitle, event_type, summary, image_key, image_url,
               starts_at, ends_at, timezone, venue, format, fee_amount, fee_currency,
+              prices,
               registration_opens_at, registration_closes_at, registration_paused,
               capacity, featured, status
          FROM events
@@ -125,7 +182,7 @@ export async function listEvents(db: D1Database, params: URLSearchParams) {
     )
     .bind(...binds)
     .all();
-  return rows.results;
+  return withLocalPrices(db, rows.results as Record<string, unknown>[], country);
 }
 
 /**
@@ -135,7 +192,11 @@ export async function listEvents(db: D1Database, params: URLSearchParams) {
  * omitted entirely — not merely flagged — so nothing restricted is ever sent to
  * a browser that has no right to it.
  */
-export async function getEvent(db: D1Database, idOrSlug: string) {
+export async function getEvent(
+  db: D1Database,
+  idOrSlug: string,
+  country = '',
+) {
   const event = await db
     .prepare(
       `SELECT * FROM events
@@ -183,8 +244,9 @@ export async function getEvent(db: D1Database, idOrSlug: string) {
   const capacity = num(event.capacity);
   const confirmed = registered?.total ?? 0;
 
+  const [priced] = await withLocalPrices(db, [event], country);
   return {
-    event: decodeAgenda(event),
+    event: decodeAgenda(priced),
     materials: materials.results,
     sessions: sessions.results,
     payment_method: method,
@@ -540,6 +602,13 @@ export async function saveEventRegistration(
     if (str(body.phone) === '' && str(existing?.phone) === '') {
       return { ok: false, code: 'MISSING_ANSWER', message: 'Phone number' };
     }
+    // Required because it is not merely a detail about the registrant: it is
+    // what the academy invoices, reports and — where the request's own origin
+    // is unknown — prices against. A blank country is a registration nobody
+    // can account for afterwards.
+    if (str(body.country) === '' && str(existing?.country) === '') {
+      return { ok: false, code: 'MISSING_ANSWER', message: 'Country' };
+    }
     const required = await db
       .prepare(
         `SELECT field_key, label FROM event_registration_fields
@@ -828,7 +897,15 @@ export async function beginEventPayment(
   const tier = tierFor(tiers, mode);
   if (!tier) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
 
-  const charge = resolveCharge(tier.prices, country);
+  // Where the request came from decides the currency, because that cannot be
+  // typed in and so cannot be chosen. Only when Cloudflare could not read it
+  // does the country the registrant gave stand in — which is why that field is
+  // required, and why it is a record of who they are rather than a price
+  // control they can set.
+  const charge = resolveCharge(
+    tier.prices,
+    country || str(registration.country),
+  );
   if (!charge) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
   const amount = charge.amount;
 
