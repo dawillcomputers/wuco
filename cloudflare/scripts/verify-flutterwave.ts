@@ -157,6 +157,29 @@ async function main() {
     currencyForCountry('') === 'USD' && currencyForCountry('ZZ') === 'USD',
   );
 
+  // A country typed rather than chosen. Registrations taken before the
+  // selector hold these, and reading one as "somewhere unrecognised" is what
+  // quoted a Nigerian in dollars.
+  check('a typed "Nigeria" is naira', currencyForCountry('Nigeria') === 'NGN');
+  check('"nigeria" in any case too', currencyForCountry('nigeria') === 'NGN');
+  check('"France" is euro', currencyForCountry('France') === 'EUR');
+  check('"Ghana" is dollars', currencyForCountry('Ghana') === 'USD');
+  check(
+    '"United Kingdom" is sterling',
+    currencyForCountry('United Kingdom') === 'GBP',
+  );
+  check(
+    'and so are the names people actually write',
+    currencyForCountry('UK') === 'GBP' &&
+      currencyForCountry('England') === 'GBP' &&
+      currencyForCountry('USA') === 'USD',
+  );
+  check(
+    'a name nobody recognises is still somewhere abroad',
+    currencyForCountry('Ruritania') === 'USD',
+    'not naira, and not a crash',
+  );
+
   const fourWays = pricesFor(
     { prices: '{"NGN": 250000, "USD": 150, "GBP": 120, "EUR": 140}' },
     '',

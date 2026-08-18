@@ -11,6 +11,7 @@
  * and what they choose has to be a price the academy actually set.
  */
 
+import { countryToCode } from './countries';
 import { num, parseJson, str } from './http';
 
 /** A price the academy has set. */
@@ -59,7 +60,11 @@ const EURO_COUNTRIES = new Set([
  * charged are the same number arrived at the same way.
  */
 export function currencyForCountry(country: string): string {
-  const code = str(country).toUpperCase();
+  // Normalised first, because this is fed from two places that disagree: the
+  // selector sends a code, and registrations taken before it existed hold a
+  // typed name. An unnormalised "Nigeria" is not `NG`, falls through to
+  // "somewhere abroad", and quotes a Nigerian in dollars.
+  const code = countryToCode(str(country));
   if (code === HOME_COUNTRY) return HOME_CURRENCY;
   if (STERLING_COUNTRIES.has(code)) return 'GBP';
   if (EURO_COUNTRIES.has(code)) return 'EUR';
