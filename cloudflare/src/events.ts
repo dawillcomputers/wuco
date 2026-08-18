@@ -910,9 +910,12 @@ export async function beginEventPayment(
   // does the country the registrant gave stand in — which is why that field is
   // required, and why it is a record of who they are rather than a price
   // control they can set.
+  // What the registrant said, first: they know where they are, and a VPN or a
+  // roaming connection does not. Cloudflare's reading stands in only where
+  // nothing was declared.
   const charge = resolveCharge(
     tier.prices,
-    country || str(registration.country),
+    str(registration.country) || country,
   );
   if (!charge) return { ok: false, code: 'PAYMENT_NOT_REQUIRED' };
   const amount = charge.amount;

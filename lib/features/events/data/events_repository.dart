@@ -151,6 +151,7 @@ abstract interface class EventsRepository {
   Future<EventPaymentOptions> paymentMethods(
     String slug, {
     String? attendanceMode,
+    String? country,
   });
 
   /// Starts a payment and returns either a checkout to open or instructions.

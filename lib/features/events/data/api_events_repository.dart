@@ -190,16 +190,18 @@ class ApiEventsRepository
   Future<EventPaymentOptions> paymentMethods(
     String slug, {
     String? attendanceMode,
+    String? country,
   }) async => EventPaymentOptions.fromMap(
     await _send(
       'GET',
       '/api/events/$slug/payment-methods',
       query: {
-        // Which rate applies follows from the date, and which currency from
-        // where the request came from — both decided server-side. This only
-        // says how the registrant is attending.
+        // Which rate applies follows from the date, decided server-side. These
+        // two say how the registrant is attending and where they are — the
+        // amount for both is still the API's to decide.
         if (attendanceMode != null && attendanceMode.isNotEmpty)
           'attendance_mode': attendanceMode,
+        if (country != null && country.isNotEmpty) 'country': country,
       },
     ),
   );

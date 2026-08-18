@@ -8,6 +8,7 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../shared/components/wea_components.dart';
 import '../../../shared/navigation/back_navigation.dart';
+import '../../../shared/widgets/wea_country_field.dart';
 import '../../../shared/widgets/wea_public_widgets.dart';
 import '../../authentication/application/auth_controller.dart';
 import '../application/events_providers.dart';
@@ -448,15 +449,18 @@ class _EventRegistrationScreenState
             autofill: const [AutofillHints.organizationName],
           ),
           _Field(controller: _jobTitle, label: 'Job title (optional)'),
-          // Required: it is what the academy invoices and reports against, and
-          // what the fee is priced in where the visitor's own location cannot
-          // be read. The API enforces this too.
-          _Field(
-            controller: _country,
-            label: 'Country',
-            autofill: const [AutofillHints.countryName],
-            validator: _required,
+          // A selector, not a box: this field decides the currency the
+          // registrant is quoted and charged in, and that rule needs an ISO
+          // code rather than whatever somebody types. Required, and enforced
+          // by the API too.
+          WEACountryField(
+            value: _country.text,
+            helperText: 'Sets the currency you will be charged in.',
+            onChanged: (code) => setState(() => _country.text = code),
+            validator: (value) =>
+                (value ?? '').isEmpty ? 'Please choose your country.' : null,
           ),
+          const SizedBox(height: WEAInsets.md),
           for (final field in later)
             _CustomField(
               field: field,
@@ -569,14 +573,22 @@ class _EventRegistrationScreenState
       eventPaymentMethodsProvider((
         slug: widget.slug,
         attendanceMode: _attendance?.wire,
+        country: _country.text.trim().isEmpty ? null : _country.text.trim(),
       )),
     );
 
     final options = payment.value;
 
-    // Once a payment has begun, the committed figure. Before that, whichever
-    // of the academy's prices the payer has chosen — falling back to the base
-    // price while the prices are still loading.
+    // On a hybrid event the amount is not knowable until the registrant says
+    // which way they are attending, because the two cost different things.
+    // Showing one of them meanwhile — or a "from" figure — would be quoting a
+    // price they may not be charged, so nothing is quoted until they choose.
+    final awaitingMode =
+        intent == null && (options?.hasModeChoice ?? false) && _attendance == null;
+
+    // Once a payment has begun, the committed figure. Before that, the price
+    // for how they said they are attending, in the currency their country is
+    // charged in.
     final amountDue = intent != null
         ? formatMoney(intent.amount, intent.currency)
         : options?.price?.label ?? registration?.amountLabel ?? event.feeLabel;
@@ -632,7 +644,7 @@ class _EventRegistrationScreenState
                         // Naming the rate matters: a registrant told only a
                         // number cannot tell whether they got the early price,
                         // nor why it will be different next week.
-                        if (rateLabel.isNotEmpty)
+                        if (rateLabel.isNotEmpty && !awaitingMode)
                           Text(
                             rateLabel,
                             style: theme.textTheme.bodySmall?.copyWith(
@@ -642,10 +654,17 @@ class _EventRegistrationScreenState
                       ],
                     ),
                   ),
-                  Text(amountDue, style: theme.textTheme.headlineSmall),
+                  awaitingMode
+                      ? Text(
+                          'Choose below',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: WEAColors.mutedText,
+                          ),
+                        )
+                      : Text(amountDue, style: theme.textTheme.headlineSmall),
                 ],
               ),
-              if (rateCloses != null)
+              if (rateCloses != null && !awaitingMode)
                 Padding(
                   padding: const EdgeInsets.only(top: WEAInsets.sm),
                   child: Text(
@@ -705,9 +724,14 @@ class _EventRegistrationScreenState
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _busy ? null : _pay,
+              // Nothing to pay until the amount is known.
+              onPressed: _busy || awaitingMode ? null : _pay,
               child: Text(
-                _busy ? 'PREPARING PAYMENT…' : 'CONTINUE TO PAYMENT',
+                _busy
+                    ? 'PREPARING PAYMENT…'
+                    : awaitingMode
+                    ? 'CHOOSE HOW YOU WILL ATTEND'
+                    : 'CONTINUE TO PAYMENT',
               ),
             ),
           )

@@ -84,13 +84,17 @@ final eventDashboardProvider = FutureProvider.family<EventDashboard, String>(
 );
 
 /// The methods, prices and rate this event can take, as the server reports them.
-typedef PaymentQuery = ({String slug, String? attendanceMode});
+typedef PaymentQuery = ({String slug, String? attendanceMode, String? country});
 
 final eventPaymentMethodsProvider =
     FutureProvider.family<EventPaymentOptions, PaymentQuery>(
       (ref, query) => ref
           .watch(eventsRepositoryProvider)
-          .paymentMethods(query.slug, attendanceMode: query.attendanceMode),
+          .paymentMethods(
+            query.slug,
+            attendanceMode: query.attendanceMode,
+            country: query.country,
+          ),
     );
 
 /// Every event the signed-in account has registered for. Empty when signed out.

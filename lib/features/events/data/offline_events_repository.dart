@@ -191,6 +191,7 @@ class OfflineEventsRepository
   Future<EventPaymentOptions> paymentMethods(
     String slug, {
     String? attendanceMode,
+    String? country,
   }) async =>
       // Nothing is configured offline, so nothing is offered. Listing methods
       // that cannot complete would be the exact mistake the live path avoids.

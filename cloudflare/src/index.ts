@@ -878,6 +878,17 @@ export default {
         // registrant says they are attending — never from a tier named in the
         // request, which is what stops the early rate being claimed after it
         // has closed.
+        // The country the registrant chose, where they have chosen one.
+        //
+        // It overrides what Cloudflare read from the connection, because that
+        // is not always right: a corporate VPN, a roaming phone or a proxy all
+        // report somewhere the payer is not, and the payer knows better than
+        // the network does. The declared country is required at registration
+        // for exactly this reason.
+        const askedCountry =
+          str(url.searchParams.get('country')).toUpperCase() ||
+          countryOf(request);
+
         const tiers = await feeTiersFor(env.WEA_DB, str(event.id));
         const modes = offeredModes(tiers, str(event.format));
         const askedMode = str(url.searchParams.get('attendance_mode')).toUpperCase();
@@ -892,7 +903,7 @@ export default {
         const eventPrices = tier?.prices ?? [];
         // The payer's own choice wins; where they have not made one, where
         // they are is only the opening suggestion.
-        const eventSuggested = suggestedCurrency(eventPrices, countryOf(request));
+        const eventSuggested = suggestedCurrency(eventPrices, askedCountry);
         const eventCurrency =
           str(url.searchParams.get('currency')).toUpperCase() || eventSuggested;
 
