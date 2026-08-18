@@ -216,6 +216,12 @@ class OfflineEventsRepository
   }
 
   @override
+  Future<EventRegistration> changeAttendance(
+    String reference,
+    EventAttendanceMode mode,
+  ) async => _registration(reference);
+
+  @override
   Future<EventPaymentOutcome> verifyPayment(
     String reference, {
     String? paymentReference,

@@ -413,6 +413,9 @@ function publicRegistration(row: Record<string, unknown>) {
     payment_status: row.payment_status,
     amount: row.amount,
     currency: row.currency,
+    // How they are attending. Empty on an event with only one way, where
+    // there was nothing to choose.
+    attendance_mode: row.attendance_mode ?? '',
     created_at: row.created_at,
     completed_at: row.completed_at,
   };
@@ -865,6 +868,109 @@ export async function feeTiersFor(
  * request may do is name *which* of those prices to charge, and a currency
  * WEA never priced is refused rather than converted into.
  */
+/**
+ * Changes how somebody is attending, after they have registered.
+ *
+ * People's plans change: a flight falls through, or a virtual attendee finds
+ * they can travel. Making them cancel and register again would lose their
+ * place and their payment, so the mode is simply moved.
+ *
+ * **No money moves either way.** Where the registration is already paid, the
+ * switch costs nothing and refunds nothing — including from the dearer way of
+ * attending to the cheaper one. That is the academy's stated position and the
+ * registrant agrees to it before the change is made; charging a difference
+ * later, or promising a refund the office would have to process by hand, would
+ * both be worse than saying so plainly up front.
+ *
+ * Where it is *not* yet paid there is nothing to preserve, so the amount is
+ * recomputed — somebody who switches before paying is charged for what they
+ * actually chose.
+ */
+export async function changeAttendanceMode(
+  db: D1Database,
+  registration: Record<string, unknown>,
+  requestedMode: string,
+  country = '',
+): Promise<EventResult> {
+  const event = await db
+    .prepare('SELECT id, format FROM events WHERE id = ?1')
+    .bind(registration.event_id)
+    .first<Record<string, unknown>>();
+  if (!event) return { ok: false, code: 'NOT_FOUND' };
+
+  const tiers = await feeTiersFor(db, str(registration.event_id));
+  const modes = offeredModes(tiers, str(event.format));
+  if (modes.length < 2) {
+    return {
+      ok: false,
+      code: 'NOT_HYBRID',
+      message: 'This event has only one way to attend.',
+    };
+  }
+
+  const wanted = str(requestedMode).toUpperCase();
+  if (!modes.includes(wanted as AttendanceMode)) {
+    return {
+      ok: false,
+      code: 'UNSUPPORTED_MODE',
+      message: 'That is not a way this event can be attended.',
+    };
+  }
+  if (wanted === str(registration.attendance_mode)) {
+    return { ok: false, code: 'NO_CHANGE' };
+  }
+
+  const settled =
+    str(registration.payment_status) === 'PAID' ||
+    str(registration.payment_status) === 'NOT_REQUIRED';
+
+  if (settled) {
+    // Paid: the mode moves and the money does not.
+    await db
+      .prepare(
+        `UPDATE event_registrations
+            SET attendance_mode = ?1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?2`,
+      )
+      .bind(wanted, registration.id)
+      .run();
+  } else {
+    const tier = tierFor(tiers, wanted);
+    const charge = tier
+      ? resolveCharge(tier.prices, str(registration.country) || country)
+      : null;
+    await db
+      .prepare(
+        `UPDATE event_registrations
+            SET attendance_mode = ?1, amount = ?2, currency = ?3,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?4`,
+      )
+      .bind(
+        wanted,
+        charge?.amount ?? num(registration.amount) ?? 0,
+        charge?.currency ?? str(registration.currency),
+        registration.id,
+      )
+      .run();
+  }
+
+  const updated = await db
+    .prepare('SELECT * FROM event_registrations WHERE id = ?1')
+    .bind(registration.id)
+    .first<Record<string, unknown>>();
+  return {
+    ok: true,
+    data: {
+      registration: publicRegistration(updated ?? {}),
+      // Said back plainly, so the interface can confirm what did and did not
+      // happen rather than leaving the registrant to wonder about the money.
+      refunded: false,
+      repriced: !settled,
+    },
+  };
+}
+
 export async function beginEventPayment(
   db: D1Database,
   registration: Record<string, unknown>,
@@ -1224,6 +1330,12 @@ export async function participantDashboard(
     latestPayment(db, str(registration.id)),
   ]);
 
+  // Which ways of attending this event offers, so the dashboard knows whether
+  // there is a switch to present at all. A single-mode event has nothing to
+  // change to, and offering the choice there would be inventing one.
+  const tiers = await feeTiersFor(db, str(registration.event_id));
+  const modes = offeredModes(tiers, str(event?.format));
+
   return {
     event: event ? decodeAgenda(event) : null,
     registration: publicRegistration(registration),
@@ -1233,6 +1345,7 @@ export async function participantDashboard(
     sessions: sessions.results,
     payment,
     entitled,
+    attendance_modes: modes,
   };
 }
 

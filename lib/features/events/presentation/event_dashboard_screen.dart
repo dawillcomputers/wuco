@@ -8,6 +8,7 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../core/responsive/responsive.dart';
 import '../../../shared/components/wea_components.dart';
+import '../../../shared/data/countries.dart';
 import '../../../shared/navigation/back_navigation.dart';
 import '../../../shared/widgets/wea_public_widgets.dart';
 import '../application/events_providers.dart';
@@ -37,6 +38,7 @@ class EventDashboardScreen extends ConsumerStatefulWidget {
 class _EventDashboardScreenState extends ConsumerState<EventDashboardScreen> {
   var _verifying = false;
   var _verified = false;
+  var _switching = false;
   EventPaymentOutcome? _outcome;
   String? _error;
 
@@ -80,6 +82,39 @@ class _EventDashboardScreenState extends ConsumerState<EventDashboardScreen> {
       setState(() {
         _verifying = false;
         _verified = true;
+        _error = failure.message;
+      });
+    }
+  }
+
+  /// Moves the registration between attending in person and online.
+  ///
+  /// The disclaimer comes first and has to be agreed to, because the change is
+  /// not reversible in money: switching from the dearer way of attending to
+  /// the cheaper one refunds nothing. Saying that plainly before the change is
+  /// made is the point of the step — nobody should discover it afterwards.
+  Future<void> _changeAttendance(EventAttendanceMode mode, bool paid) async {
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (context) => _AttendanceDisclaimer(mode: mode, paid: paid),
+    );
+    if (agreed != true) return;
+
+    setState(() {
+      _switching = true;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(eventActionsProvider)
+          .changeAttendance(widget.reference, mode);
+      if (!mounted) return;
+      setState(() => _switching = false);
+      _notify('You are now attending ${mode.shortLabel.toLowerCase()}.');
+    } on EventFailure catch (failure) {
+      if (!mounted) return;
+      setState(() {
+        _switching = false;
         _error = failure.message;
       });
     }
@@ -258,6 +293,12 @@ class _EventDashboardScreenState extends ConsumerState<EventDashboardScreen> {
                     dashboard: data,
                     onJoin: _join,
                     onRecording: (session) => _open(session.recordingUrl),
+                  ),
+                if (data.canChangeAttendance)
+                  _AttendancePanel(
+                    dashboard: data,
+                    busy: _switching,
+                    onChange: _changeAttendance,
                   ),
                 _MaterialsPanel(dashboard: data, onOpen: _open),
                 if (data.agenda.isNotEmpty)
@@ -525,6 +566,162 @@ class _SessionsPanel extends StatelessWidget {
   }
 }
 
+/// Lets a registrant move between attending in person and attending online.
+///
+/// Only shown where the event offers both. Plans change — a flight falls
+/// through, or somebody who booked online finds they can travel — and making
+/// them cancel and register again would cost them their place and their
+/// payment.
+class _AttendancePanel extends StatelessWidget {
+  const _AttendancePanel({
+    required this.dashboard,
+    required this.busy,
+    required this.onChange,
+  });
+
+  final EventDashboard dashboard;
+  final bool busy;
+  final void Function(EventAttendanceMode mode, bool paid) onChange;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final registration = dashboard.registration;
+    final current = registration.mode;
+    final paid = registration.paymentStatus.settled;
+
+    return EventSectionBlock(
+      title: 'How you are attending',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            paid
+                ? 'You can change this at any time. Your place is already paid '
+                      'for, so switching costs nothing and refunds nothing.'
+                : 'You can change this until you pay. The fee follows whichever '
+                      'you choose.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: WEAColors.mutedText,
+            ),
+          ),
+          const SizedBox(height: WEAInsets.md),
+          if (busy)
+            const LinearProgressIndicator()
+          else
+            Wrap(
+              spacing: WEAInsets.sm,
+              runSpacing: WEAInsets.sm,
+              children: [
+                for (final mode in dashboard.attendanceModes)
+                  ChoiceChip(
+                    selected: mode == current,
+                    onSelected: (_) {
+                      if (mode != current) onChange(mode, paid);
+                    },
+                    avatar: Icon(
+                      mode == EventAttendanceMode.physical
+                          ? Icons.location_on_outlined
+                          : Icons.videocam_outlined,
+                      size: 18,
+                    ),
+                    label: Text(mode.label),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What changes, and what does not, before the switch is made.
+///
+/// The money is the part worth stating: moving from the dearer way of
+/// attending to the cheaper one refunds nothing. Somebody should agree to that
+/// knowingly rather than discover it on their statement.
+class _AttendanceDisclaimer extends StatefulWidget {
+  const _AttendanceDisclaimer({required this.mode, required this.paid});
+
+  final EventAttendanceMode mode;
+  final bool paid;
+
+  @override
+  State<_AttendanceDisclaimer> createState() => _AttendanceDisclaimerState();
+}
+
+class _AttendanceDisclaimerState extends State<_AttendanceDisclaimer> {
+  bool _agreed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: Text('Change to ${widget.mode.shortLabel.toLowerCase()}?'),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.paid
+                  ? 'Your place is already paid for. Changing how you attend '
+                        'does not change what you paid: nothing further is '
+                        'charged, and nothing is refunded — including where '
+                        'the other way of attending costs less.'
+                  : 'You have not paid yet, so the fee will follow whichever '
+                        'you choose. You will see the amount before paying.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: WEAInsets.md),
+            Container(
+              padding: const EdgeInsets.all(WEAInsets.sm),
+              decoration: BoxDecoration(
+                color: WEAColors.surfaceMuted,
+                borderRadius: BorderRadius.circular(WEAInsets.smallRadius),
+              ),
+              child: Text(
+                widget.mode == EventAttendanceMode.virtual
+                    ? 'You will receive a joining link instead of a seat in the '
+                          'room.'
+                    : 'You will have a seat in the room instead of a joining '
+                          'link.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            const SizedBox(height: WEAInsets.sm),
+            CheckboxListTile(
+              value: _agreed,
+              onChanged: (value) => setState(() => _agreed = value ?? false),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(
+                widget.paid
+                    ? 'I understand that no refund is due.'
+                    : 'I understand the fee will change.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('CANCEL'),
+        ),
+        // Enabled only once they have agreed, so the tick is a decision rather
+        // than something to click past.
+        ElevatedButton(
+          onPressed: _agreed ? () => Navigator.of(context).pop(true) : null,
+          child: const Text('CONTINUE'),
+        ),
+      ],
+    );
+  }
+}
+
 class _MaterialsPanel extends StatelessWidget {
   const _MaterialsPanel({required this.dashboard, required this.onOpen});
 
@@ -584,7 +781,11 @@ class _RegistrationPanel extends StatelessWidget {
           if (registration.jobTitle.isNotEmpty)
             _Detail(label: 'Job title', value: registration.jobTitle),
           if (registration.country.isNotEmpty)
-            _Detail(label: 'Country', value: registration.country),
+            // Stored as an ISO code now, so it is resolved back to a name —
+            // a registrant should read "Ghana", not "GH".
+            _Detail(label: 'Country', value: countryName(registration.country)),
+          if (registration.mode case final mode?)
+            _Detail(label: 'Attending', value: mode.shortLabel),
           _Detail(label: 'Reference', value: registration.reference),
           if (registration.requiresPayment)
             _Detail(label: 'Fee', value: registration.amountLabel),

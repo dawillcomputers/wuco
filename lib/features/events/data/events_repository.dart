@@ -161,6 +161,16 @@ abstract interface class EventsRepository {
     String? attendanceMode,
   });
 
+  /// Moves a registration between attending in person and attending online.
+  ///
+  /// No money changes hands either way where the place is already paid for —
+  /// the academy's position, which the registrant agrees to before this is
+  /// called.
+  Future<EventRegistration> changeAttendance(
+    String reference,
+    EventAttendanceMode mode,
+  );
+
   /// Asks the API to confirm with the processor what actually happened.
   Future<EventPaymentOutcome> verifyPayment(
     String reference, {

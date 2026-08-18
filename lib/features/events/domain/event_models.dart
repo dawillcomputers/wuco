@@ -628,6 +628,7 @@ class EventRegistration {
     required this.currency,
     required this.createdAt,
     this.completedAt,
+    this.attendanceMode = '',
   });
 
   final String id;
@@ -647,6 +648,12 @@ class EventRegistration {
   final String currency;
   final DateTime? createdAt;
   final DateTime? completedAt;
+
+  /// How they are attending. Empty on an event with only one way, where there
+  /// was nothing to choose.
+  final String attendanceMode;
+
+  EventAttendanceMode? get mode => EventAttendanceMode.parse(attendanceMode);
 
   String get fullName => '$firstName $lastName'.trim();
 
@@ -668,6 +675,7 @@ class EventRegistration {
     phone: _text(map, 'phone'),
     organisation: _text(map, 'organisation'),
     jobTitle: _text(map, 'job_title'),
+    attendanceMode: _text(map, 'attendance_mode'),
     country: _text(map, 'country'),
     answers: {
       for (final entry in (map['answers'] as Map? ?? const {}).entries)
@@ -1005,6 +1013,7 @@ class EventDashboard {
     required this.entitled,
     required this.agenda,
     required this.successMessage,
+    this.attendanceModes = const [],
   });
 
   final WeaEvent event;
@@ -1017,6 +1026,12 @@ class EventDashboard {
   final bool entitled;
   final List<EventAgendaItem> agenda;
   final String successMessage;
+
+  /// The ways this event can be attended. More than one means the registrant
+  /// can move between them; a single-mode event has nothing to change to.
+  final List<EventAttendanceMode> attendanceModes;
+
+  bool get canChangeAttendance => attendanceModes.length > 1;
 
   EventSession? get liveNow {
     for (final session in sessions) {
@@ -1040,6 +1055,10 @@ class EventDashboard {
           EventAgendaItem.fromAny(item),
       ],
       successMessage: _text(event, 'success_message'),
+      attendanceModes: [
+        for (final value in (map['attendance_modes'] as List? ?? const []))
+          ?EventAttendanceMode.parse('$value'),
+      ],
     );
   }
 }

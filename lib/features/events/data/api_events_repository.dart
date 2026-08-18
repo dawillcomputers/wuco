@@ -226,6 +226,22 @@ class ApiEventsRepository
   );
 
   @override
+  Future<EventRegistration> changeAttendance(
+    String reference,
+    EventAttendanceMode mode,
+  ) async {
+    final body = await _send(
+      'POST',
+      '/api/events/registrations/$reference/attendance',
+      body: {'attendance_mode': mode.wire},
+      reference: reference,
+    );
+    return EventRegistration.fromMap(
+      Map<String, dynamic>.from(body['registration'] as Map),
+    );
+  }
+
+  @override
   Future<EventPaymentOutcome> verifyPayment(
     String reference, {
     String? paymentReference,

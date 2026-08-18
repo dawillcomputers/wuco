@@ -53,6 +53,7 @@ import {
 } from './permissions';
 import {
   beginEventPayment,
+  changeAttendanceMode,
   eventOverview,
   eventRegistrationContext,
   feeTiersFor,
@@ -1389,6 +1390,42 @@ export default {
         // a reference exists is not something a stranger gets to learn.
         if (!registration) return fail('NOT_FOUND', 404, allowed);
         return json(await participantDashboard(env.WEA_DB, registration), 200, allowed);
+      }
+
+      /**
+       * Changing how somebody attends, after they have registered.
+       *
+       * Owned by the same rule as everything else on a registration: an
+       * account that owns it, or a guest holding the token issued when it was
+       * created. Nobody else can move a stranger's place online.
+       */
+      const attendanceMatch = path.match(
+        /^\/api\/events\/registrations\/([^/]+)\/attendance$/,
+      );
+      if (method === 'POST' && attendanceMatch) {
+        const registration = await findOwnedRegistration(
+          env.WEA_DB,
+          decodeURIComponent(attendanceMatch[1]),
+          actor,
+          resumeTokenOf(request),
+        );
+        if (!registration) return fail('NOT_FOUND', 404, allowed);
+
+        const result = await changeAttendanceMode(
+          env.WEA_DB,
+          registration,
+          str((await readJson(request)).attendance_mode),
+          countryOf(request),
+        );
+        if (!result.ok) {
+          return fail(
+            result.code!,
+            result.code === 'NOT_FOUND' ? 404 : 400,
+            allowed,
+            result.message,
+          );
+        }
+        return json(result.data, 200, allowed);
       }
 
       const beginPaymentMatch = path.match(

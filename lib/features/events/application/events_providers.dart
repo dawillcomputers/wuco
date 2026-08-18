@@ -209,6 +209,17 @@ class EventActions {
     return intent;
   }
 
+  /// Moves a registration between attending in person and online.
+  Future<EventRegistration> changeAttendance(
+    String reference,
+    EventAttendanceMode mode,
+  ) async {
+    final updated = await _events.changeAttendance(reference, mode);
+    _ref.invalidate(eventDashboardProvider(reference));
+    _ref.invalidate(myEventRegistrationsProvider);
+    return updated;
+  }
+
   Future<EventPaymentOutcome> verifyPayment(
     String reference, {
     String? paymentReference,
