@@ -52,8 +52,11 @@ import {
   permissionsFor,
 } from './permissions';
 import {
+  attachPaymentProof,
   beginEventPayment,
   changeAttendanceMode,
+  paymentChoicesFor,
+  reviewPaymentProof,
   eventOverview,
   eventRegistrationContext,
   feeTiersFor,
@@ -869,7 +872,7 @@ export default {
       const methodsMatch = path.match(/^\/api\/events\/([^/]+)\/payment-methods$/);
       if (method === 'GET' && methodsMatch) {
         const event = await env.WEA_DB.prepare(
-          'SELECT id, format, fee_amount, fee_currency, prices FROM events WHERE id = ?1 OR slug = ?1',
+          'SELECT * FROM events WHERE id = ?1 OR slug = ?1',
         )
           .bind(decodeURIComponent(methodsMatch[1]))
           .first<Record<string, unknown>>();
@@ -928,6 +931,24 @@ export default {
                 }
               : null,
             attendance_mode: eventMode,
+            // How they may pay, decided by where they are. A card always; a
+            // transfer into the academy's own account only for a Nigerian
+            // payer on an event whose creator set one up.
+            payment_choices: (() => {
+              const choices = paymentChoicesFor(event, askedCountry);
+              return {
+                card: choices.card,
+                transfer: choices.transfer
+                  ? {
+                      account_name: choices.transfer.accountName,
+                      bank_name: choices.transfer.bankName,
+                      account_number: choices.transfer.accountNumber,
+                      instructions: choices.transfer.instructions,
+                      proof_required: choices.transfer.proofRequired,
+                    }
+                  : null,
+              };
+            })(),
             // Empty on an event with one way to attend: there is nothing to ask.
             attendance_modes: modes,
             // The whole fee table, so a registrant can see what they would pay
@@ -1428,6 +1449,34 @@ export default {
         return json(result.data, 200, allowed);
       }
 
+      const proofMatch = path.match(
+        /^\/api\/events\/registrations\/([^/]+)\/payment-proof$/,
+      );
+      if (method === 'POST' && proofMatch) {
+        const registration = await findOwnedRegistration(
+          env.WEA_DB,
+          decodeURIComponent(proofMatch[1]),
+          actor,
+          resumeTokenOf(request),
+        );
+        if (!registration) return fail('NOT_FOUND', 404, allowed);
+
+        const result = await attachPaymentProof(
+          env.WEA_DB,
+          registration,
+          str((await readJson(request)).media_key),
+        );
+        if (!result.ok) {
+          return fail(
+            result.code!,
+            result.code === 'ALREADY_PAID' ? 409 : 400,
+            allowed,
+            result.message,
+          );
+        }
+        return json(result.data, 200, allowed);
+      }
+
       const beginPaymentMatch = path.match(
         /^\/api\/events\/registrations\/([^/]+)\/payment$/,
       );
@@ -1451,6 +1500,7 @@ export default {
           // they are, so the price quoted and the price charged agree.
           countryOf(request),
           str(paymentBody.attendance_mode),
+          str(paymentBody.payment_choice),
         );
         if (!result.ok) {
           return fail(result.code!, result.code === 'ALREADY_PAID' ? 409 : 400, allowed, result.message);
@@ -2445,6 +2495,49 @@ export default {
             200,
             allowed,
           );
+        }
+
+        /**
+         * Approving or refusing a bank transfer, having looked at the receipt.
+         *
+         * The one place a transfer becomes paid. WEA cannot see the academy's
+         * bank account, so this is a person's decision rather than a system's.
+         */
+        const proofReviewMatch = path.match(
+          /^\/api\/admin\/event-registrations\/([^/]+)\/payment-proof$/,
+        );
+        if (method === 'POST' && proofReviewMatch) {
+          const body = await readJson(request);
+          const approve = body.approve === true;
+          const result = await reviewPaymentProof(
+            env.WEA_DB,
+            proofReviewMatch[1],
+            approve,
+            str(body.reason),
+          );
+          if (!result.ok) {
+            return fail(result.code!, result.code === 'NOT_FOUND' ? 404 : 400, allowed);
+          }
+          await audit(
+            env,
+            actor.id,
+            approve ? 'APPROVE_EVENT_TRANSFER' : 'REJECT_EVENT_TRANSFER',
+            proofReviewMatch[1],
+            str(body.reason),
+          );
+          // Told the same way a card payment is: the registrant hears that the
+          // place is confirmed, not that an administrator pressed a button.
+          if (approve) {
+            const row = await env.WEA_DB.prepare(
+              'SELECT * FROM event_registrations WHERE id = ?1',
+            )
+              .bind(proofReviewMatch[1])
+              .first<Record<string, unknown>>();
+            if (row) {
+              await mailEventRegistration(env, mail, row, 'paid', str(row.reference));
+            }
+          }
+          return json(result.data, 200, allowed);
         }
 
         const adminRegistrationMatch = path.match(

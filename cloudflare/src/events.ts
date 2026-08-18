@@ -22,6 +22,7 @@ import {
   sha256,
   temporaryPassword,
 } from './auth';
+import { countryToCode } from './countries';
 import { flag, num, parseJson, str } from './http';
 import {
   AttendanceMode,
@@ -416,6 +417,14 @@ function publicRegistration(row: Record<string, unknown>) {
     // How they are attending. Empty on an event with only one way, where
     // there was nothing to choose.
     attendance_mode: row.attendance_mode ?? '',
+    // Which way they chose to pay, and the receipt where they transferred.
+    // The two paths end differently — a card is confirmed by the processor, a
+    // transfer by somebody reading this receipt — so the registration has to
+    // remember which it was.
+    payment_choice: row.payment_choice ?? '',
+    payment_proof_key: row.payment_proof_key ?? null,
+    payment_proof_uploaded_at: row.payment_proof_uploaded_at ?? null,
+    payment_rejected_reason: row.payment_rejected_reason ?? '',
     created_at: row.created_at,
     completed_at: row.completed_at,
   };
@@ -859,15 +868,60 @@ export async function feeTiersFor(
   return implicitTier(event ?? {});
 }
 
+/** The academy's own account, as the event creator set it. */
+export interface ManualTransferAccount {
+  accountName: string;
+  bankName: string;
+  accountNumber: string;
+  instructions: string;
+  proofRequired: boolean;
+}
+
 /**
- * Starts a payment for a registration.
+ * The ways this registrant may pay, and the account to transfer into.
  *
- * The amount comes from the prices the academy set on the event — never from
- * the request. A client that asks to pay ten naira for a
- * two-hundred-and-fifty-thousand naira summit is charged the latter. All the
- * request may do is name *which* of those prices to charge, and a currency
- * WEA never priced is refused rather than converted into.
+ * A card is always offered: it is the only way to pay from outside Nigeria and
+ * the fastest way from inside it.
+ *
+ * Bank transfer is offered **only to a Nigerian payer, and only when the event
+ * creator has set an account for it**. Not because a transfer from elsewhere is
+ * impossible in principle, but because the account is a Nigerian one and an
+ * international payer told to wire money into it would be quoted fees and a
+ * delay nobody warned them about.
+ *
+ * Flutterwave's own bank-transfer rail is deliberately absent. It creates a
+ * temporary virtual account and settles into the processor, which is a
+ * different thing from a transfer the academy reconciles by hand — and two
+ * things both called "bank transfer" in one list is a way to be asked why the
+ * money went somewhere unexpected.
  */
+export function paymentChoicesFor(
+  event: Record<string, unknown>,
+  country: string,
+): { card: boolean; transfer: ManualTransferAccount | null } {
+  const nigerian = countryToCode(str(country)) === 'NG';
+  const enabled = flag(event.manual_transfer_enabled) === 1;
+  const accountNumber = str(event.manual_account_number);
+
+  // An enabled transfer with no account number is not an option, it is a
+  // half-finished setting. Offering it would send somebody looking for details
+  // that are not there.
+  const usable = nigerian && enabled && accountNumber !== '';
+
+  return {
+    card: true,
+    transfer: usable
+      ? {
+          accountName: str(event.manual_account_name),
+          bankName: str(event.manual_bank_name),
+          accountNumber,
+          instructions: str(event.manual_transfer_instructions),
+          proofRequired: flag(event.manual_proof_required) === 1,
+        }
+      : null,
+  };
+}
+
 /**
  * Changes how somebody is attending, after they have registered.
  *
@@ -971,6 +1025,129 @@ export async function changeAttendanceMode(
   };
 }
 
+/**
+ * Records the receipt for a bank transfer.
+ *
+ * The file itself is already in R2 by the time this is called — uploaded
+ * through the same path as everything else — so this only attaches it to the
+ * registration and notes when it arrived.
+ *
+ * **Attaching a receipt does not pay for anything.** The registration stays
+ * pending until somebody at the academy has looked at the transfer and said it
+ * arrived. Anything else would let a place be claimed with a picture.
+ */
+export async function attachPaymentProof(
+  db: D1Database,
+  registration: Record<string, unknown>,
+  mediaKey: string,
+): Promise<EventResult> {
+  if (str(registration.payment_status) === 'PAID') {
+    return { ok: false, code: 'ALREADY_PAID' };
+  }
+  if (str(mediaKey) === '') {
+    return { ok: false, code: 'INVALID_REQUEST', message: 'No file was supplied.' };
+  }
+
+  await db
+    .prepare(
+      `UPDATE event_registrations
+          SET payment_proof_key = ?1,
+              payment_proof_uploaded_at = CURRENT_TIMESTAMP,
+              payment_choice = 'TRANSFER',
+              status = 'PAYMENT_PENDING',
+              payment_status = 'PENDING',
+              payment_rejected_reason = '',
+              last_activity_at = CURRENT_TIMESTAMP,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?2`,
+    )
+    .bind(str(mediaKey), registration.id)
+    .run();
+
+  const updated = await db
+    .prepare('SELECT * FROM event_registrations WHERE id = ?1')
+    .bind(registration.id)
+    .first<Record<string, unknown>>();
+  return {
+    ok: true,
+    data: { registration: publicRegistration(updated ?? {}) },
+  };
+}
+
+/**
+ * Approves or refuses a bank transfer, having looked at it.
+ *
+ * This is the one place a transfer becomes paid, and it is a person's decision
+ * rather than a system's — WEA cannot see the academy's bank account, so it
+ * cannot know the money arrived. Approving writes `PAID` and confirms the
+ * place; refusing says why, so the registrant can be told something better
+ * than "declined" and can try again.
+ */
+export async function reviewPaymentProof(
+  db: D1Database,
+  registrationId: string,
+  approve: boolean,
+  reason: string,
+): Promise<EventResult> {
+  const registration = await db
+    .prepare('SELECT * FROM event_registrations WHERE id = ?1')
+    .bind(registrationId)
+    .first<Record<string, unknown>>();
+  if (!registration) return { ok: false, code: 'NOT_FOUND' };
+
+  if (approve) {
+    await db
+      .prepare(
+        `UPDATE event_registrations
+            SET status = 'COMPLETED', payment_status = 'PAID',
+                payment_rejected_reason = '',
+                completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?1`,
+      )
+      .bind(registrationId)
+      .run();
+  } else {
+    // Left pending rather than failed: the registrant can transfer again and
+    // upload a better receipt, and a place nobody has given up on should not
+    // read as finished.
+    await db
+      .prepare(
+        `UPDATE event_registrations
+            SET status = 'PAYMENT_PENDING', payment_status = 'PENDING',
+                payment_rejected_reason = ?1,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?2`,
+      )
+      .bind(str(reason) || 'The transfer could not be matched.', registrationId)
+      .run();
+  }
+
+  const updated = await db
+    .prepare('SELECT * FROM event_registrations WHERE id = ?1')
+    .bind(registrationId)
+    .first<Record<string, unknown>>();
+  return {
+    ok: true,
+    data: {
+      registration: publicRegistration(updated ?? {}),
+      approved: approve,
+    },
+  };
+}
+
+/**
+ * Starts a payment for a registration.
+ *
+ * The amount comes from the prices the academy set on the event — never from
+ * the request. A client that asks to pay ten naira for a
+ * two-hundred-and-fifty-thousand naira summit is charged the latter.
+ *
+ * Choosing a bank transfer takes no processor at all: the amount is recorded,
+ * the academy's own account is handed back, and the registration waits for
+ * somebody to confirm the money arrived. Nothing on that path may conclude it
+ * was paid.
+ */
 export async function beginEventPayment(
   db: D1Database,
   registration: Record<string, unknown>,
@@ -979,6 +1156,8 @@ export async function beginEventPayment(
   methodKey?: string,
   country = '',
   chosenMode = '',
+  /** `CARD` or `TRANSFER`. Empty means card, which is always available. */
+  paymentChoice = '',
 ): Promise<EventResult> {
   if (str(registration.payment_status) === 'PAID') {
     return { ok: false, code: 'ALREADY_PAID' };
@@ -989,7 +1168,7 @@ export async function beginEventPayment(
   // Nothing in the request names the tier — the date decides it — and a
   // currency WEA never priced is refused rather than converted into.
   const event = await db
-    .prepare('SELECT format FROM events WHERE id = ?1')
+    .prepare('SELECT * FROM events WHERE id = ?1')
     .bind(registration.event_id)
     .first<Record<string, unknown>>();
   const tiers = await feeTiersFor(db, str(registration.event_id));
@@ -1036,6 +1215,65 @@ export async function beginEventPayment(
     if (!offered.some((option) => option.key === methodKey)) {
       return { ok: false, code: 'UNSUPPORTED_PAYMENT_METHOD' };
     }
+  }
+
+  // --- Bank transfer, into the academy's own account -----------------------
+  //
+  // No processor is involved, so there is nothing to initialise and nothing
+  // that could report success. The amount and the choice are recorded, the
+  // account is handed back, and the registration waits for an administrator to
+  // confirm the money arrived.
+  //
+  // Refused rather than silently turned into a card payment where the event
+  // does not offer it: a payer who asked to transfer should be told the option
+  // is not available, not charged a card they did not reach for.
+  if (str(paymentChoice).toUpperCase() === 'TRANSFER') {
+    const choices = paymentChoicesFor(
+      event ?? {},
+      str(registration.country) || country,
+    );
+    if (!choices.transfer) {
+      return {
+        ok: false,
+        code: 'TRANSFER_NOT_AVAILABLE',
+        message: 'Bank transfer is not available for this event.',
+      };
+    }
+
+    await db
+      .prepare(
+        `UPDATE event_registrations
+            SET payment_choice = 'TRANSFER', status = 'PAYMENT_PENDING',
+                payment_status = 'PENDING', amount = ?1, currency = ?2,
+                chosen_currency = ?2, attendance_mode = ?3,
+                payment_rejected_reason = '',
+                last_activity_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?4`,
+      )
+      .bind(amount, charge.currency, mode, registration.id)
+      .run();
+
+    return {
+      ok: true,
+      data: {
+        provider: 'MANUAL',
+        payment_choice: 'TRANSFER',
+        checkout_url: null,
+        amount,
+        currency: charge.currency,
+        // Everything the payer needs to make the transfer, and the reference
+        // that lets the office match it to this registration.
+        transfer: {
+          account_name: choices.transfer.accountName,
+          bank_name: choices.transfer.bankName,
+          account_number: choices.transfer.accountNumber,
+          instructions: choices.transfer.instructions,
+          proof_required: choices.transfer.proofRequired,
+          reference: str(registration.reference),
+        },
+      },
+    };
   }
 
   // Deliberately null, exactly as tuition does: the processor decides how a
@@ -1110,6 +1348,7 @@ export async function beginEventPayment(
       `UPDATE event_registrations
           SET status = ?1, payment_status = ?2,
               amount = ?3, currency = ?4, chosen_currency = ?4,
+              payment_choice = 'CARD', payment_rejected_reason = '',
               last_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?5`,
     )

@@ -10,6 +10,7 @@
  *   npm run verify:flutterwave
  */
 
+import { paymentChoicesFor } from '../src/events';
 import {
   paymentOptionsFor,
   readV3Webhook,
@@ -461,6 +462,54 @@ async function main() {
   check(
     'a free event has no headline price at all',
     headlinePrice(implicitTier({ fee_amount: 0 }), 'NG') === null,
+  );
+
+  // --- How a registrant may pay ----------------------------------------------
+
+  section('Bank transfer is offered where it can work');
+
+  const withAccount = {
+    manual_transfer_enabled: 1,
+    manual_account_name: 'World United Consumer Organisation',
+    manual_bank_name: 'Zenith Bank Plc',
+    manual_account_number: '1017081110',
+    manual_proof_required: 1,
+  };
+
+  check(
+    'a Nigerian payer is offered a transfer',
+    paymentChoicesFor(withAccount, 'NG').transfer !== null,
+  );
+  check(
+    'and the account is the event own',
+    paymentChoicesFor(withAccount, 'NG').transfer?.accountNumber === '1017081110',
+    'never compiled in, so different events can bank differently',
+  );
+  check(
+    'a typed "Nigeria" counts too',
+    paymentChoicesFor(withAccount, 'Nigeria').transfer !== null,
+  );
+  for (const country of ['GH', 'GB', 'FR', 'US']) {
+    check(
+      `${country} is not offered the Nigerian account`,
+      paymentChoicesFor(withAccount, country).transfer === null,
+      'they would meet fees and a delay nobody warned them about',
+    );
+  }
+  check(
+    'card is offered to everybody',
+    paymentChoicesFor(withAccount, 'GH').card &&
+      paymentChoicesFor(withAccount, 'NG').card &&
+      paymentChoicesFor({}, 'FR').card,
+  );
+  check(
+    'an event that has not enabled it offers no transfer',
+    paymentChoicesFor({ manual_account_number: '123' }, 'NG').transfer === null,
+  );
+  check(
+    'nor does one enabled with no account number',
+    paymentChoicesFor({ manual_transfer_enabled: 1 }, 'NG').transfer === null,
+    'a half-finished setting is not an option, it is a dead end',
   );
 
   // --- Secrets stay server-side --------------------------------------------

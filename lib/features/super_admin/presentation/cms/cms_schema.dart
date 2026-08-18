@@ -707,6 +707,44 @@ const cmsResources = <CmsResource>[
             'somebody attends. Only asked of a hybrid event — a physical or '
             'online event has one way to attend and one price.',
       ),
+      // --- Bank transfer, into the academy's own account ------------------
+      CmsField(
+        column: 'manual_transfer_enabled',
+        label: 'Offer bank transfer',
+        kind: CmsFieldKind.toggle,
+        help:
+            'Offers a transfer into the account below, alongside card payment. '
+            'Shown to Nigerian registrants only — the account is a Nigerian '
+            'one, and somebody abroad would meet fees and delays nobody warned '
+            'them about. This is not the processor transfer option; it is a '
+            'transfer into your own account, which your office matches by hand.',
+      ),
+      CmsField(column: 'manual_account_name', label: 'Account name'),
+      CmsField(column: 'manual_bank_name', label: 'Bank'),
+      CmsField(
+        column: 'manual_account_number',
+        label: 'Account number',
+        help:
+            'Without this the option is not offered, whatever the switch above '
+            'says — sending somebody to find details that are not there is '
+            'worse than not offering it.',
+      ),
+      CmsField(
+        column: 'manual_transfer_instructions',
+        label: 'Transfer instructions',
+        kind: CmsFieldKind.multiline,
+        help:
+            'Anything else the payer should know. The reference to quote is '
+            'added automatically.',
+      ),
+      CmsField(
+        column: 'manual_proof_required',
+        label: 'Require proof of payment',
+        kind: CmsFieldKind.toggle,
+        help:
+            'Asks the registrant to upload a receipt. Leave on: without one '
+            'your office is matching a name against a bank statement by hand.',
+      ),
       CmsField(
         column: 'payment_instructions',
         label: 'Payment instructions',

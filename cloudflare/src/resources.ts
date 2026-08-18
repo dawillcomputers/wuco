@@ -300,6 +300,14 @@ export const RESOURCES: ResourceSpec[] = [
       // setting that duplicates it and can contradict it.
       priceField('prices'),
       priceField('virtual_prices'),
+      // The academy's own account, per event: an academy runs events for
+      // different bodies and the money should not always land in one place.
+      boolean('manual_transfer_enabled'),
+      text('manual_account_name'),
+      text('manual_bank_name'),
+      text('manual_account_number'),
+      text('manual_transfer_instructions'),
+      boolean('manual_proof_required'),
       text('payment_instructions'),
       text('contact_email'),
       text('contact_phone'),
